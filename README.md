@@ -14,6 +14,9 @@ npm run dev        # starts the game; open the "Network" link on your phone (sam
 ```
 
 - Add `?debug` to the URL to see fps, draw calls and triangle count.
+- Phones automatically lower resolution/shadows if they can't hold ~48 fps (`?hq` turns that off).
+- Desktop gets a soft bloom on glowing things; `?bloom=0` / `?bloom=1` force it off/on.
+- First-match hints are remembered in localStorage (`batSiegeTutorialDone`); clear it to see them again.
 - `npm run build` makes the upload-ready game in `dist/` (about 3 MB).
 - `npm run simulate` plays 40 matches headlessly (a simple bot vs. the AI) and prints results.
   Handy after changing numbers in `src/game/config.js`.

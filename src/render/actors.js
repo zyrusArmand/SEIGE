@@ -90,6 +90,11 @@ export class Actors {
     const outer = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.66, 40), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false, depthTest: false })); outer.renderOrder = 20; dot.renderOrder = 20; ring.add(outer);
     ring.visible = false; scene.add(ring);
     this.ring = ring; this.ringMat = ringMat;
+    // the rival's incoming drop, shown on your castle so you can see the threat coming
+    const threatMat = new THREE.MeshBasicMaterial({ color: '#ff5a3a', transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, toneMapped: false });
+    const threat = new THREE.Mesh(new THREE.RingGeometry(0.36, 0.54, 4, 1, Math.PI / 4), threatMat);
+    threat.rotation.x = -Math.PI / 2; threat.renderOrder = 20; threat.visible = false; scene.add(threat);
+    this.threat = threat;
     // line from bat to ring
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
     this.dropLine = new THREE.Line(lg, new THREE.LineDashedMaterial({ color: '#ffffff', dashSize: 0.12, gapSize: 0.1, transparent: true, opacity: 0.5, depthWrite: false, depthTest: false }));
@@ -259,6 +264,16 @@ export class Actors {
   }
 
   updateRing(game, time) {
+    const f = game.foe;
+    const incoming = game.state === 'play' && f.carrying && f.stun <= 0 && f.pos.z > -2;
+    this.threat.visible = !!incoming;
+    if (incoming) {
+      const L = game.predictLanding(f);
+      this.threat.position.set(L.x, L.y + 0.03, L.z);
+      const k = 1 + Math.sin(time * 12) * 0.12;
+      this.threat.scale.set(k, k, k);
+      this.threat.material.opacity = 0.55 + Math.sin(time * 12) * 0.3;
+    }
     const p = game.player;
     const show = game.state === 'play' && p.carrying && p.stun <= 0;
     this.ring.visible = !!show; this.dropLine.visible = !!show;
