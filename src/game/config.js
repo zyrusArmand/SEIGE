@@ -1,8 +1,8 @@
 // Every gameplay number lives here, so balance changes are one-line edits.
 export const CONFIG = {
   match: {
-    seconds: 180,          // one match = 3:00
-    bloodMoonAt: 30,       // blood moon for the last 30 s
+    seconds: 120,          // one match = 2:00 (was 3:00; shorter = tenser)
+    bloodMoonAt: 60,       // blood moon for the last minute
     bloodMoonFade: 3,      // seconds for the moonlight to turn red
     bloodMoonMult: 2,      // all damage x2 during blood moon
   },
@@ -39,14 +39,19 @@ export const CONFIG = {
     areaX: 5.4, areaZ: 3.9,
     comebackPull: 7,       // spawns drift toward the losing side by lead * this
     eatRadius: 0.9,
+    fleeRadius: 2.3, fleeSpeed: 2.4,          // moths scatter away from bats that get close
+    streakWindow: 1.6, streakEvery: 3,        // eat 3 in a quick row -> +1 bonus moth
+    goldenEvery: [22, 30], goldenValue: 5, goldenFlee: 3.4, goldenLife: 12,
   },
 
   bat: {
-    maxSpeed: 6.6, aiMaxSpeed: 5.6, accel: 4.5, keyAccel: 5,
+    maxSpeed: 6.6, aiMaxSpeed: 5.8, accel: 4.5, keyAccel: 5,
     height: 2.8, bob: 0.08,
     boundsX: 6.3, boundsZ: 10.4,
     homeMargin: 0.6,       // how far outside the walls still counts as "home"
     slowRadius: 1.6,       // starts braking this far from the touch point
+    // ramming the other bat: the faster one knocks the slower one dizzy and steals a moth
+    bumpRadius: 0.8, bumpMinSpeed: 4.3, bumpStun: 0.7, bumpPush: 6, bumpCooldown: 2.5,
   },
 
   // Ghost turret: a block you buy. It zaps the enemy bat when it comes close (guard),
@@ -65,6 +70,8 @@ export const CONFIG = {
     raidAt: 2, raidLead: 0.08,
     termiteChance: 0.4,
     turretChance: 0.45,
+    raidChance: 0.3,      // extra chance to go raiding even when not ahead
+    bumpChaseRange: 3.5,  // chases you to ram you when you're carrying cargo nearby
     dropRadius: 0.35, dropMaxSpeed: 1.6,
   },
 };

@@ -167,3 +167,4 @@ button{font:inherit;color:inherit}
   background:radial-gradient(circle at 40% 35%,#d9e7ff,#8aa0d8);box-shadow:0 3px 10px rgba(0,0,0,.4);opacity:.85}
 .tray.away .tool:not(.atk){opacity:.38;filter:saturate(.5)}
 .tray.away .tool:not(.atk)[aria-pressed="true"]{opacity:.6}
+.ftext.taunt{font-family:var(--body);font-weight:600;background:rgba(40,12,8,.75);border:1px solid rgba(255,140,100,.5);padding:2px 8px;border-radius:10px;text-shadow:none}

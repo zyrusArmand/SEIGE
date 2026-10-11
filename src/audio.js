@@ -74,6 +74,10 @@ export function sfx(n, opt = {}) {
     case 'lose': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.34, 'triangle', 0.14, null, i * 0.16)); break;
     case 'start': [392, 523, 659].forEach((f, i) => tone(f, 0.18, 'triangle', 0.1, null, i * 0.08)); break;
     case 'tick': tone(1400, 0.05, 'sine', 0.05); break;
+    case 'bonk': tone(180, 0.18, 'square', 0.12, 90); noise(0.12, 0.4, 600, 1.2); tone(1100, 0.15, 'triangle', 0.05, 1600, 0.03); break;
+    case 'golden': [988, 1319, 1568, 1976].forEach((f, i) => tone(f, 0.22, 'triangle', 0.08, null, i * 0.06)); break;
+    case 'goldenEat': [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, 0.25, 'sine', 0.1, null, i * 0.05)); break;
+    case 'streak': tone(660 + (opt.n || 3) * 40, 0.12, 'triangle', 0.1); tone(990 + (opt.n || 3) * 60, 0.2, 'triangle', 0.09, null, 0.08); break;
     case 'flap': noise(0.16, 0.07 * (opt.vol ?? 1), 520, 0.8, 'lowpass', 0, 160); break;
     case 'fly': tone(523, 0.12, 'triangle', 0.1); tone(784, 0.22, 'triangle', 0.1, null, 0.1); break;
     case 'firework': noise(0.5, 0.25, 3000, 0.6, 'bandpass', 0, 600); tone(1800 + Math.random() * 900, 0.4, 'sine', 0.03, 600, 0.05); break;

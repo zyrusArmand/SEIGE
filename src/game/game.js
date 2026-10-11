@@ -84,7 +84,8 @@ export class Game {
     this.you.target = null; this.rival.target = null;
     for (let i = 0; i < CONFIG.moths.startCount; i++) this.spawnMoth(true);
     this.timeLeft = CONFIG.match.seconds; this.blood = false; this.bloodT = 0;
-    this.spawnT = 0; this.elapsed = 0;
+    this.spawnT = 0; this.elapsed = 0; this.goldenT = rnd(14, 20);
+    this.streak = { n: 0, t: 0 };
     this.stats = { moths: 0, broken: 0, perfect: 0, built: 0 };
     this.ai = { mode: 'gather', think: 0, buildT: 0, targetCell: null };
     this.outcome = null;
@@ -269,7 +270,14 @@ export class Game {
       tries++;
     } while (hyp((x - POND.x) / 1.3, z - POND.z) < 1.6 && tries < 20);
     const home = { x, y: rnd(2.2, 2.9), z };
-    this.moths.push({ id: nextId++, home, pos: { ...home }, t: Math.random() * 10, born: initial ? 0.6 : 0 });
+    this.moths.push({ id: nextId++, home, pos: { ...home }, t: Math.random() * 10, born: initial ? 0.6 : 0, golden: false });
+  }
+
+  spawnGolden() {
+    const home = { x: rnd(-2.5, 2.5), y: 2.6, z: rnd(-1.2, 1.2) };
+    const m = { id: nextId++, home, pos: { ...home }, t: 0, born: 0, golden: true, life: CONFIG.moths.goldenLife };
+    this.moths.push(m);
+    this.emit('golden', { pos: { ...home } });
   }
 
   // ------------------------------------------------------------------ bats
@@ -312,11 +320,33 @@ export class Game {
     if (isPlayer && wasHome !== bat.home && this.state === 'play') this.emit(bat.home ? 'arriveHome' : 'leaveHome');
   }
 
+  // ------------------------------------------------------------------ bat vs bat
+  checkBump() {
+    const B = CONFIG.bat, a = this.player, b = this.foe;
+    if (a.stun > 0 || b.stun > 0 || (this.bumpT || 0) > this.elapsed) return;
+    const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = hyp(dx, dz);
+    if (d > B.bumpRadius || d < 0.001) return;
+    const nx = dx / d, nz = dz / d;
+    // who hit whom: the bat moving harder toward the other one
+    const va = a.vel.x * nx + a.vel.z * nz, vb = -(b.vel.x * nx + b.vel.z * nz);
+    if (Math.max(va, vb) < B.bumpMinSpeed) return;
+    const [hitter, victim, sx, sz] = va >= vb ? [a, b, nx, nz] : [b, a, -nx, -nz];
+    victim.stun = B.bumpStun;
+    victim.vel.x = sx * B.bumpPush; victim.vel.z = sz * B.bumpPush;
+    hitter.vel.x *= 0.3; hitter.vel.z *= 0.3;
+    const dropped = victim.carrying;
+    if (dropped) this.dropCargo(victim);
+    const stole = victim.moths > 0 ? 1 : 0;
+    victim.moths -= stole; hitter.moths += stole;
+    this.bumpT = this.elapsed + B.bumpCooldown;
+    this.emit('bump', { hitter: hitter.side, victim: victim.side, pos: { x: (a.pos.x + b.pos.x) / 2, y: a.pos.y, z: (a.pos.z + b.pos.z) / 2 }, stole, dropped });
+  }
+
   // ------------------------------------------------------------------ AI
   nearestMoth(bat) {
     let best = null, bd = 1e9;
     for (const m of this.moths) {
-      const d = (bat.pos.x - m.pos.x) ** 2 + (bat.pos.z - m.pos.z) ** 2 + (m.pos.z > 2 ? 6 : 0);
+      const d = (bat.pos.x - m.pos.x) ** 2 + (bat.pos.z - m.pos.z) ** 2 + (m.pos.z > 2 ? 6 : 0) - (m.golden ? 40 : 0);
       if (d < bd) { bd = d; best = m; }
     }
     return best;
@@ -356,9 +386,15 @@ export class Game {
       }
       if (AI.mode === 'gather') {
         if (foe.moths >= C.buildAt && Math.random() < 0.5) AI.mode = (myC < yourC + 0.04 || Math.random() < 0.45) ? 'build' : 'raid';
-        else if (foe.moths >= C.raidAt && myC > yourC + C.raidLead && Math.random() < 0.4) AI.mode = 'raid';
+        else if (foe.moths >= C.raidAt && (myC > yourC + C.raidLead || Math.random() < C.raidChance) && Math.random() < 0.5) AI.mode = 'raid';
         else if (foe.moths >= C.buildAlwaysAt) AI.mode = 'build';
       }
+    }
+    // you're carrying cargo close by: try to ram you and make you drop it
+    const pl = this.player;
+    if (pl.carrying && pl.stun <= 0 && hyp(pl.pos.x - foe.pos.x, pl.pos.z - foe.pos.z) < C.bumpChaseRange) {
+      foe.target.x = pl.pos.x + pl.vel.x * 0.3; foe.target.z = pl.pos.z + pl.vel.z * 0.3;
+      return;
     }
     if (AI.mode === 'gather') {
       const m = this.nearestMoth(foe);
@@ -410,6 +446,8 @@ export class Game {
       this.spawnT -= dt;
       if (this.spawnT <= 0 && this.moths.length < M.max) { this.spawnMoth(); this.spawnT = this.blood ? M.bloodSpawn : rnd(M.spawnMin, M.spawnMax); }
       this.aiThink(dt);
+      this.goldenT -= dt;
+      if (this.goldenT <= 0) { this.goldenT = rnd(...M.goldenEvery); if (!this.moths.some((m) => m.golden)) this.spawnGolden(); }
     }
     if (this.blood) this.bloodT = Math.min(1, this.bloodT + dt / CONFIG.match.bloodMoonFade);
 
@@ -421,24 +459,51 @@ export class Game {
     this.updateBat(this.player, dt, CONFIG.bat.maxSpeed, this.state !== 'menu');
     this.updateBat(this.foe, dt, playing ? CONFIG.bat.aiMaxSpeed : 2.2, false);
 
-    // moths
+    // moths: hover, scatter away from nearby bats, get eaten
+    this.streak.t -= dt;
     for (let i = this.moths.length - 1; i >= 0; i--) {
       const m = this.moths[i]; m.t += dt; m.born = Math.min(1, m.born + dt * 2.5);
-      m.pos.x = m.home.x + Math.sin(m.t * 1.3) * 0.45;
+      if (playing) {
+        for (const b of [this.player, this.foe]) {
+          const dx = m.home.x - b.pos.x, dz = m.home.z - b.pos.z, d = hyp(dx, dz);
+          if (d < M.fleeRadius && d > 0.01) {
+            const sp = (m.golden ? M.goldenFlee : M.fleeSpeed) * (1 - d / M.fleeRadius) * 1.6;
+            m.home.x = clamp(m.home.x + dx / d * sp * dt, -M.areaX - 0.6, M.areaX + 0.6);
+            m.home.z = clamp(m.home.z + dz / d * sp * dt, -M.areaZ - 1.2, M.areaZ + 1.2);
+          }
+        }
+        if (m.golden) {
+          m.life -= dt;
+          if (m.life <= 0) { this.emit('goldenGone', { pos: { ...m.pos } }); this.moths.splice(i, 1); continue; }
+        }
+      }
+      const wob = m.golden ? 1.4 : 1;
+      m.pos.x = m.home.x + Math.sin(m.t * 1.3 * wob) * 0.45;
       m.pos.y = m.home.y + Math.sin(m.t * 2.1) * 0.2;
-      m.pos.z = m.home.z + Math.cos(m.t * 1.1) * 0.35;
+      m.pos.z = m.home.z + Math.cos(m.t * 1.1 * wob) * 0.35;
       if (!playing) continue;
       let eater = null;
       for (const b of [this.player, this.foe]) {
         if (b.stun <= 0 && hyp(b.pos.x - m.pos.x, b.pos.z - m.pos.z) < M.eatRadius) { eater = b; break; }
       }
       if (eater) {
-        eater.moths++;
-        if (eater === this.player) this.stats.moths++;
-        this.emit('mothEaten', { side: eater.side, pos: { ...m.pos } });
+        const value = m.golden ? M.goldenValue : 1;
+        eater.moths += value;
+        if (eater === this.player) {
+          this.stats.moths += value;
+          this.streak.n = this.streak.t > 0 ? this.streak.n + 1 : 1;
+          this.streak.t = M.streakWindow;
+        }
+        this.emit('mothEaten', { side: eater.side, pos: { ...m.pos }, golden: m.golden, value, streak: eater === this.player ? this.streak.n : 0 });
+        if (eater === this.player && !m.golden && this.streak.n % M.streakEvery === 0) {
+          eater.moths++; this.stats.moths++;
+          this.emit('streak', { n: this.streak.n, pos: { ...eater.pos } });
+        }
         this.moths.splice(i, 1);
       }
     }
+
+    if (playing) this.checkBump();
 
     // blocks: animation timers + bone healing
     for (const castle of [this.you, this.rival]) {

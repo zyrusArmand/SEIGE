@@ -60,10 +60,13 @@ export class Actors {
     const MAXM = 24;
     this.moth = { body: new THREE.InstancedMesh(mb.solid, MATS.solid, MAXM), wings: [], max: MAXM };
     this.moth.body.frustumCulled = false; scene.add(this.moth.body);
+    this.white = new THREE.Color(1, 1, 1); this.gold = new THREE.Color(1.5, 1.35, 0.45);
+    this.moth.body.setColorAt(0, this.white);
     for (const [nm, s] of [['WingL', 1], ['WingR', -1]]) {
       const node = mr.getObjectByName(nm);
       const wg = bake(node, { relativeTo: node, glowBoost: 1.0 });
       const im = new THREE.InstancedMesh(mergeWing(wg), MATS.glowSide, MAXM);
+      im.setColorAt(0, new THREE.Color(1, 1, 1));
       im.frustumCulled = false; scene.add(im);
       this.moth.wings.push({ im, s, pivot: nodeLocal(mr, nm) });
     }
@@ -167,7 +170,7 @@ export class Actors {
       if (n >= M.max) break;
       const dx = Math.cos(m.t * 1.3) * 0.585, dz = -Math.sin(m.t * 1.1) * 0.385;
       const yaw = Math.atan2(dx, dz);
-      const s = 1.75 * easeOutBack(m.born);
+      const s = (m.golden ? 2.5 : 1.75) * easeOutBack(m.born);
       this.q.setFromAxisAngle(this.v.set(0, 1, 0), yaw);
       this.m.compose(this.v.set(m.pos.x, m.pos.y, m.pos.z), this.q, this.s.set(s, s, s));
       M.body.setMatrixAt(n, this.m);
@@ -177,10 +180,20 @@ export class Actors {
         this.m2.compose(w.pivot, this.q, this.s.set(1, 1, 1)).premultiply(this.m);
         w.im.setMatrixAt(n, this.m2);
       }
-      glow.add(m.pos.x, m.pos.y, m.pos.z, 1.7 * m.born, '#ffa53a', 0.75 + Math.sin(m.t * 5) * 0.2);
+      const col = m.golden ? this.gold : this.white;
+      M.body.setColorAt(n, col);
+      for (const w of M.wings) w.im.setColorAt(n, col);
+      if (m.golden) {
+        const blink = m.life < 3 ? (Math.sin(time * 18) > 0 ? 1 : 0.35) : 1;   // blinks before flying off
+        glow.add(m.pos.x, m.pos.y, m.pos.z, 3.2 * m.born, '#ffe066', (0.8 + Math.sin(m.t * 7) * 0.2) * blink);
+        glow.add(m.pos.x, m.pos.y, m.pos.z, 1.2, '#ffffff', 0.6 * blink);
+        if (this.sparkles && Math.random() < 0.5) this.sparkles.burst(m.pos, '#ffe9a0', 1, 0.5, 0.35, 0.6);
+      } else glow.add(m.pos.x, m.pos.y, m.pos.z, 1.7 * m.born, '#ffa53a', 0.75 + Math.sin(m.t * 5) * 0.2);
       n++;
     }
-    for (const im of [M.body, ...M.wings.map((w) => w.im)]) { im.count = n; im.instanceMatrix.needsUpdate = true; }
+    for (const im of [M.body, ...M.wings.map((w) => w.im)]) {
+      im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
   }
 
   updateFalling(game, glow) {

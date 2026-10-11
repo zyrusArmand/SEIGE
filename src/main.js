@@ -351,6 +351,13 @@ function handleEvent(ev) {
         break;
       }
       case 'mothEaten': {
+        if (ev.golden) {
+          sparkles.burst(ev.pos, '#ffe066', 24, 2.6, 0.5); sparkles.ring(ev.pos, '#fff3b0', 16, 3.2, 0.35);
+          sfx('goldenEat');
+          if (ev.side === 'you') { floats.add(ev.pos, '+' + ev.value, '#ffe066', 32, 'big'); buzz([20, 30, 20]); for (let i = 0; i < 3; i++) setTimeout(() => flyToCounter(ev.pos), i * 90); }
+          else { floats.add(ev.pos, '+' + ev.value, '#ff9a6a', 24); taunt('Ha ha! Mine!'); }
+          break;
+        }
         sparkles.burst(ev.pos, '#ffb347', 9, 1.5, 0.4);
         if (ev.side === 'you') {
           sfx('moth'); floats.add(ev.pos, '+1', '#ffd27a', 19);
@@ -364,10 +371,29 @@ function handleEvent(ev) {
       case 'ghosted': {
         sparkles.burst(ev.pos, '#c9b8ff', 16, 2, 0.45);
         if (ev.side === 'you') {
-          sfx('hit'); shake(0.25); buzz(60);
+          sfx('hit'); shake(0.25); buzz(60); if (ev.side === 'you') taunt('Boo!');
           floats.add(ev.pos, ev.lost ? 'Ghosted! -1' : 'Ghosted!', '#c9b8ff', 22);
           ui.vignette.classList.add('hurt'); setTimeout(() => ui.vignette.classList.remove('hurt'), 160);
         } else floats.add(ev.pos, 'Ghosted!', '#c9b8ff', 18);
+        break;
+      }
+      case 'golden':
+        sfx('golden'); toast('A golden moth appeared! Worth 5', true, 1.8);
+        break;
+      case 'goldenGone':
+        sparkles.burst(ev.pos, '#ffe066', 10, 1.2, 0.4);
+        break;
+      case 'streak':
+        sfx('streak', { n: ev.n });
+        floats.add({ x: ev.pos.x, y: ev.pos.y + 0.9, z: ev.pos.z }, `Streak x${ev.n}! +1`, '#ffe9a0', 22, 'big');
+        break;
+      case 'bump': {
+        const youHit = ev.hitter === 'you';
+        sfx('bonk'); shake(youHit ? 0.18 : 0.3); buzz(youHit ? 25 : 50);
+        sparkles.ring(ev.pos, '#ffffff', 12, 3, 0.35); sparkles.burst(ev.pos, '#ffe9a0', 8, 2, 0.35);
+        floats.add({ x: ev.pos.x, y: ev.pos.y + 0.8, z: ev.pos.z }, youHit ? (ev.stole ? 'Bonk! +1' : 'Bonk!') : (ev.stole ? 'Bonked! -1' : 'Bonked!'), youHit ? '#7ff5dc' : '#ff8a6a', 24, 'big');
+        if (ev.dropped && !youHit) toast('Your cargo fell!', false, 1.2);
+        taunt(youHit ? ['Hey!', 'Ow!', 'Rude!'][(Math.random() * 3) | 0] : ['Mine!', 'Too slow!', 'Hehe!'][(Math.random() * 3) | 0]);
         break;
       }
       case 'target':
@@ -413,6 +439,15 @@ function handleEvent(ev) {
         break;
       default: break;
     }
+}
+
+// the rival bat shouts little reactions
+let lastTaunt = -10;
+function taunt(text) {
+  if (time - lastTaunt < 2.5) return;
+  lastTaunt = time;
+  const p = game.foe.pos;
+  floats.add({ x: p.x, y: p.y + 1.9, z: p.z - 0.6 }, text, '#ffb08a', 18, 'taunt');
 }
 
 // eaten moths fly up into the moth counter

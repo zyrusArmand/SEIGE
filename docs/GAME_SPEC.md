@@ -5,7 +5,7 @@ keep them in one config file (`src/game/config.js`) so balance changes are one-l
 
 ## The match
 
-- 1 player vs 1 AI rival bat. One match = **3:00**.
+- 1 player vs 1 AI rival bat. One match = **2:00** (was 3:00; shortened Oct 11 so matches stay tense).
 - Each side has a castle with a **6 wide x 3 deep grid** (18 squares). Player castle is at the bottom
   of the screen, rival castle at the top, open field with moths between them.
 - **Castle completion** = total block levels / 36 (every square stacked 2 high = 100%).
@@ -15,6 +15,10 @@ keep them in one config file (`src/game/config.js`) so balance changes are one-l
 ## Moths (currency)
 
 - Glowing orange moths flutter over the field. Fly through one to eat it (+1 moth).
+- Moths scatter away from bats that come within 2.3 units, so catching them takes a little steering.
+- **Streak:** eat 3 moths in a quick row (each within 1.6 s) for +1 bonus moth, "Streak x3!", rising chime.
+- **Golden moth:** every 22-30 s one appears near the middle, worth 5, flees faster, and flies off after 12 s.
+  The AI races for it too.
 - Spawn every 0.8–1.3 s, max 12 on the field, inside x ±5.4, z ±3.9, never over the pond.
 - **Comeback rule:** spawns drift toward the losing side (offset z by -lead x 7, clamped).
 - Blood moon: spawn every 0.6 s.
@@ -54,6 +58,12 @@ front-middle squares get a gate on the ground level. (Changed Oct 11 at Zyrus's 
   At 0 HP the block is destroyed.
 - Missing (empty square or open ground) shows "Miss" and a dust puff. No friendly fire.
 
+## Bumping (added Oct 11)
+
+- Ram the other bat at speed (closing speed 4.3+, within 0.8 units): it gets dizzy for 0.7 s, is knocked back,
+  drops its cargo, and you steal 1 moth. 2.5 s cooldown. "Bonk!" text, the rival shouts a reaction.
+- The AI tries to ram you when you carry cargo within 3.5 units of it.
+
 ## Ghost turret (buyable block, changed Oct 11 at Zyrus's request)
 
 - Not free at the start: buy it from the tray (4 moths) and place it on an empty square at home. Max 2.
@@ -64,7 +74,7 @@ front-middle squares get a gate on the ground level. (Changed Oct 11 at Zyrus's 
   stun 1.2 s, drops cargo, loses 1 moth. "Ghosted!" text.
 - The AI buys one turret when it can afford it and aims at your best block (prefers your turrets).
 
-## Blood moon (last 30 s)
+## Blood moon (last 60 s)
 
 - Moonlight shifts to red over 3 s, pond reflection turns red, timer turns red.
 - Banner: "Blood moon. Every attack does double damage." Low rumble sound.
