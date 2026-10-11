@@ -109,6 +109,7 @@ export class CastleView {
         const f = Math.max(0, b.hp) / maxHp(b);
         const k = 0.42 + 0.58 * Math.min(1, f * 1.15);
         this.c.setRGB(k, k * (0.92 + 0.08 * f), k * (0.88 + 0.12 * f));
+        if (b.shake > 0.2) { const fl = (b.shake - 0.2) * 9; this.c.r += fl; this.c.g += fl; this.c.b += fl; }   // hit flash
         for (let i = 0; i < b.level; i++) {
           const key = b.type + '_body' + (i === 0 && b.arch ? '_arch' : '');
           this.m2.makeTranslation(0, i * G.levelHeight, 0).premultiply(this.m);
@@ -150,7 +151,12 @@ export class CastleView {
       gh.g.position.set(tu.pos.x, tu.pos.y, tu.pos.z);
       gh.g.rotation.y = tu.yaw;
       const fire = tu.fire / 0.4;
-      gh.g.scale.setScalar(1.15 * (1 + fire * 0.18));
+      // telegraph: swell and brighten just before firing at a bat in range
+      const enemy = castle === game.you ? game.foe : game.player;
+      const inRange = Math.hypot(enemy.pos.x - tu.pos.x, enemy.pos.z - tu.pos.z) < 7.2 && enemy.stun <= 0;
+      const charge = tu.active && inRange && game.state === 'play' ? Math.max(0, 1 - tu.cd / 0.6) : 0;
+      if (charge > 0) glow.add(tu.pos.x, tu.pos.y, tu.pos.z, 1.0 + charge * 1.6, '#e6dcff', charge * 0.9);
+      gh.g.scale.setScalar(1.15 * (1 + fire * 0.18 + charge * 0.12 + Math.sin(time * 40) * charge * 0.03));
       gh.inner.rotation.z = Math.sin(time * 1.7 + (castle.side === 'you' ? 0 : 2)) * 0.08;
       gh.mat.opacity = 0.92 * tu.opacity;
       gh.faceMat.opacity = tu.opacity;

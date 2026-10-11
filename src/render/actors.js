@@ -101,7 +101,7 @@ export class Actors {
 
   // ------------------------------------------------------------------ per-frame
   update(game, dt, time, glow, sparkles, labelLayer, camera) {
-    this.dt = dt;
+    this.dt = dt; this.sparkles = sparkles;
     for (const bat of [game.player, game.foe]) this.updateBat(game, bat, time, glow);
     this.updateMoths(game, time, glow);
     this.updateFalling(game, glow);
@@ -132,6 +132,18 @@ export class Actors {
       for (let i = 0; i < 3; i++) {
         const an = time * 6 + i * 2.09;
         glow.add(bat.pos.x + Math.cos(an) * 0.45, bat.pos.y + 0.55, bat.pos.z + Math.sin(an) * 0.45, 0.38, '#d8c8ff', 1);
+      }
+    }
+    // faint wind trail behind fast bats
+    if (bat.speed > 4.6 && !stunned && this.sparkles) {
+      this.trailT = (this.trailT || 0) - this.dt;
+      if (this.trailT <= 0) {
+        this.trailT = 0.035;
+        const back = 0.35, sx = Math.cos(bat.yaw), sz = -Math.sin(bat.yaw);
+        for (const s of [-1, 1]) {
+          this.sparkles.list.push({ x: bat.pos.x - Math.sin(bat.yaw) * back + sx * s * 1.1, y: bat.pos.y, z: bat.pos.z - Math.cos(bat.yaw) * back + sz * s * 1.1,
+            vx: 0, vy: 0, vz: 0, life: 0.35, max: 0.35, color: bat.side === 'you' ? '#b8a8ff' : '#ffb08a', size: 0.22 });
+        }
       }
     }
     // blob shadow directly under the bat (lands on block tops too) - the aiming aid
@@ -201,7 +213,8 @@ export class Actors {
   updateTermites(game, dt, time, glow, layer, camera) {
     let n = 0; const live = new Set();
     const e = G.blockWidth / 2 + 0.025;
-    const fwd = new THREE.Vector3(), up = new THREE.Vector3(), right = new THREE.Vector3(), pos = new THREE.Vector3();
+    const fwd = this._fwd || (this._fwd = new THREE.Vector3()), up = this._up || (this._up = new THREE.Vector3());
+    const right = this._right || (this._right = new THREE.Vector3()), pos = this._pos || (this._pos = new THREE.Vector3());
     for (const f of game.infests) {
       live.add(f.id);
       const b = f.castle.cells[f.r][f.c];
@@ -224,7 +237,7 @@ export class Actors {
         else if (side === 2) { x = e - t * L; z = -e; up.set(0, 0, -1); fwd.set(-1, 0, 0); }
         else { x = -e; z = -e + t * L; up.set(-1, 0, 0); fwd.set(0, 0, 1); }
         if (u.sp < 0) fwd.negate();
-        const wig = Math.sin(u.w) * 0.25; fwd.addScaledVector(new THREE.Vector3(0, 1, 0), wig).normalize();
+        const wig = Math.sin(u.w) * 0.25; fwd.y += wig; fwd.normalize();
         right.crossVectors(up, fwd);
         this.m.makeBasis(right, up, fwd);
         pos.set(p.x + x, p.y + 0.1 + u.h * (hgt - 0.22), p.z + z);

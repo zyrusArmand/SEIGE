@@ -28,6 +28,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
+renderer.info.autoReset = false;   // count every pass (bloom renders several) per frame
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
@@ -256,10 +257,17 @@ function showEnd(outcome) {
 const V = (p) => new THREE.Vector3(p.x, p.y, p.z);
 function topOf(side, c, r, level) {
   const castle = side === 'you' ? game.you : game.rival;
-  const p = cellPos(castle, c, r); p.y += (level ?? 1) * G.levelHeight; return p;
+  const p = cellPos(castle, c, r);
+  return new THREE.Vector3(p.x, p.y + (level ?? 1) * G.levelHeight, p.z);
 }
+let fxErrors = 0;
 function handleEvents() {
   for (const ev of game.events) {
+    try { handleEvent(ev); } catch (err) { if (fxErrors++ < 5) console.error('[bat-siege] effect failed for', ev.type, err); }
+  }
+  game.events.length = 0;
+}
+function handleEvent(ev) {
     tutorial.onEvent(ev);
     switch (ev.type) {
       case 'place': {
@@ -364,8 +372,6 @@ function handleEvents() {
         break;
       default: break;
     }
-  }
-  game.events.length = 0;
 }
 
 // eaten moths fly up into the moth counter
@@ -488,6 +494,7 @@ function frame() {
   updateHud(dt);
   adaptQuality(dt);
 
+  renderer.info.reset();
   updateFinale(dt);
   shakeAmt = Math.max(0, shakeAmt - dt * 1.6);
   const sx = (Math.random() - 0.5) * shakeAmt, sz = (Math.random() - 0.5) * shakeAmt;
