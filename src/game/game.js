@@ -248,7 +248,8 @@ export class Game {
   // ------------------------------------------------------------------ bats
   updateBat(bat, dt, maxSpd, isPlayer) {
     const B = CONFIG.bat;
-    bat.flap += dt * (bat.stun > 0 ? 6 : 11 + bat.speed * 0.9);
+    // wing-beat phase: quicker, choppier beats when hovering, longer strokes at speed
+    bat.flap += dt * (bat.stun > 0 ? 9 : 14.5 - Math.min(bat.speed, 6.6) * 0.5);
     if (bat.stun > 0) {
       bat.stun -= dt;
       const k = 1 - Math.min(1, 2.5 * dt); bat.vel.x *= k; bat.vel.z *= k;

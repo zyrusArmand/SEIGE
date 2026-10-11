@@ -535,61 +535,353 @@ def castle_frame():
 # ---------------------------------------------------------------- creatures
 
 
-def wing_points():
-    lead = [(0.0, -0.10), (0.5, -0.31), (1.05, -0.36), (1.36, -0.13)]
-    trail = []
-    trail += quad_pts((1.36, -0.13), (1.13, 0.02), (1.05, 0.28))
-    trail += quad_pts((1.05, 0.28), (0.88, 0.12), (0.72, 0.30))
-    trail += quad_pts((0.72, 0.30), (0.55, 0.12), (0.38, 0.28))
-    trail += quad_pts((0.38, 0.28), (0.24, 0.10), (0.0, 0.16))
-    return lead + trail
+# ---------------------------------------------------------------- rigged bats
+# Bats are skinned meshes on a real skeleton (shoulder/elbow/wrist/thumb/4 fingers per wing,
+# head, ears, legs). The game animates the bones in code (src/render/batRig.js) so the flap
+# speed, folding, banking and stun reactions follow the gameplay.
+
+BAT_PALETTES = {
+    "player": dict(fur="#5b4d8c", fur_dark="#43376f", fur_light="#8d7cbf", wing="#56337a", wing_light="#6c4394",
+                   bone="#382a54", vein="#f07a30", ear_in="#e2a0bf", snout="#e0a2b4", nose="#3a2030",
+                   eye="#ffa31a", pupil="#160c10", brow="#251d3c", claw="#2a2230"),
+    "rival": dict(fur="#8f674a", fur_dark="#6b4b35", fur_light="#d4b08a", wing="#7c4430", wing_light="#95543c",
+                  bone="#56311f", vein="#f39040", ear_in="#ebb9a0", snout="#e0a89a", nose="#3a2016",
+                  eye="#ff8a1a", pupil="#160c08", brow="#3a2412", claw="#2a1c14"),
+}
+BAT_BONES = ["root", "body", "head", "ear_L", "ear_R",
+             "upperarm_L", "forearm_L", "hand_L", "thumb_L", "d2_L", "d3_L", "d4_L", "d5_L", "leg_L", "foot_L",
+             "upperarm_R", "forearm_R", "hand_R", "thumb_R", "d2_R", "d3_R", "d4_R", "d5_R", "leg_R", "foot_R"]
 
 
-def bat(name, body_hex, wing_hex, eye_hex):
-    BODY = mat(name + "_body", body_hex, rough=0.75)
-    WING = mat(name + "_wing", wing_hex, rough=0.85, double=True)
-    EYE = mat(name + "_eye", eye_hex, emit=eye_hex, emit_strength=5.0)
-    INNER = mat(name + "_inner", wing_hex, rough=0.9)
+class Paint:
+    """A color + which of the 3 bat materials it belongs to (fur / wing / glow)."""
+    def __init__(self, hexc, kind="fur"):
+        self.lin = hex_rgb(hexc)
+        self.kind = kind
+
+
+def bat_layout(side):
+    """Wing + leg joint positions for one side (side=+1 is the bat's left, Blender +X). Front is -Y."""
+    K = 0.82
+    def P(x, y, z=0.06):
+        return Vector((side * x * K, y * K, z))
+    j = dict(
+        S=Vector((side * 0.17, -0.06, 0.06)),
+        E=P(0.62, 0.16), W=P(1.02, -0.16), T=P(1.1, -0.34, 0.08),
+        D2=P(1.66, -0.34), D3=P(2.05, -0.1), D4=P(1.66, 0.52), D5=P(1.12, 0.7),
+        H=Vector((side * 0.11, 0.2, -0.1)), A=Vector((side * 0.17, 0.42, -0.26)),
+    )
+    j["FT"] = j["A"] + Vector((0, 0.03, -0.09))
+    return j
+
+
+def make_armature(name):
+    arm_data = bpy.data.armatures.new(name + "_rig")
+    arm = bpy.data.objects.new("Rig_" + name, arm_data)
+    bpy.context.scene.collection.objects.link(arm)
+    bpy.context.view_layer.objects.active = arm
+    arm.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    eb = arm_data.edit_bones
+
+    def bone(n, h, t, parent=None):
+        b = eb.new(n)
+        b.head, b.tail, b.roll = Vector(h), Vector(t), 0.0
+        if parent:
+            b.parent = eb[parent]
+            b.use_connect = False
+    bone("root", (0, 0, -0.1), (0, 0, 0.1))
+    bone("body", (0, 0.2, -0.02), (0, -0.12, 0.06), "root")
+    bone("head", (0, -0.1, 0.12), (0, -0.28, 0.36), "body")
+    for side, sfx in ((1, "_L"), (-1, "_R")):
+        j = bat_layout(side)
+        bone("ear" + sfx, (side * 0.15, -0.16, 0.34), (side * 0.3, -0.14, 0.86), "head")
+        bone("upperarm" + sfx, j["S"], j["E"], "body")
+        bone("forearm" + sfx, j["E"], j["W"], "upperarm" + sfx)
+        bone("hand" + sfx, j["W"], j["W"] + Vector((side * 0.06, 0, 0)), "forearm" + sfx)
+        for d in ("T", "D2", "D3", "D4", "D5"):
+            bone(("thumb" if d == "T" else d.lower()) + sfx, j["W"], j[d], "hand" + sfx)
+        bone("leg" + sfx, j["H"], j["A"], "body")
+        bone("foot" + sfx, j["A"], j["FT"], "leg" + sfx)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return arm
+
+
+def seg_dist(p, a, b):
+    ab = b - a
+    t = max(0.0, min(1.0, (p - a).dot(ab) / max(ab.length_squared, 1e-9)))
+    return (a + ab * t - p).length
+
+
+def bat(name):
+    pal = BAT_PALETTES[name]
+    C = {k: Paint(v) for k, v in pal.items()}
+    for k in ("wing", "wing_light", "vein"):
+        C[k] = Paint(pal[k], "wing")
+    C["bone_w"] = Paint(pal["bone"], "wing")
+    C["eye"] = Paint(pal["eye"], "glow")
+    C["glint"] = Paint("#fff6e0", "glow")
+    C["fang"] = Paint("#f4efe2")
+    arm = make_armature(name)
     B = Builder()
-    # chubby fuzzy torso + big round head (chibi proportions like the concept art)
-    B.sphere(0.25, (0, 0.04, -0.02), BODY, scale=(1, 1.2, 0.9))
-    B.sphere(0.27, (0, -0.26, 0.13), BODY, seg=18, rings=12)
-    for k in range(7):  # fur tuft ring on the chest
-        a = k / 7 * math.pi * 2
-        B.cone(0.05, 0.0, 0.09, (math.cos(a) * 0.17, -0.06 + math.sin(a) * 0.12, 0.12), BODY, seg=5,
-               rot=Matrix.Rotation(0.5, 4, "X"))
+    # create custom-data layers BEFORE adding geometry: adding a layer later invalidates vertex refs
+    B.bm.verts.layers.deform.verify()
+    B.bm.loops.layers.color.new("Col")
+    weights = []   # (verts, {bone: w}) or (verts, None) = auto from distance
+
+    def rig(verts, bone):
+        weights.append((list(verts), {bone: 1.0}))
+        return verts
+
+    def auto(verts):
+        weights.append((list(verts), None))
+        return verts
+
+    def orient(d):
+        return Vector((0, 0, 1)).rotation_difference(Vector(d).normalized()).to_matrix().to_4x4()
+
+    # -------- body + fluffy chest
+    Hc = Vector((0, -0.2, 0.2))
+    rig(B.sphere(0.25, (0, 0.06, -0.03), C["fur"], seg=16, rings=10, scale=(0.95, 1.18, 0.92)), "body")
+    rig(B.sphere(0.17, (0, -0.1, -0.07), C["fur_light"], seg=14, rings=9, scale=(1.05, 0.75, 1.1)), "body")
+    for i in range(16):  # fur tufts on chest (light) and back (dark)
+        a = random.uniform(0, math.tau)
+        if i < 8:
+            d = Vector((math.cos(a) * 0.7, -0.75, math.sin(a) * 0.6 - 0.35)).normalized()
+            base, col, r = Vector((0, -0.1, -0.07)) + d * 0.13, C["fur_light"], 0.05
+        else:
+            d = Vector((math.cos(a) * 0.45, random.uniform(0.8, 1.2), abs(math.sin(a)) * 0.35 + 0.25)).normalized()  # lies back
+            base, col, r = Vector((0, 0.08, -0.03)) + Vector((d.x * 0.22, d.y * 0.27, d.z * 0.2)), random.choice([C["fur"], C["fur_dark"]]), 0.055
+        rig(B.cone(r, 0.0, 0.12, base + d * 0.03, col, seg=5, rot=orient(d)), "body")
+
+    # -------- head
+    rig(B.sphere(0.27, Hc, C["fur"], seg=20, rings=14, scale=(1.08, 0.95, 0.95)), "head")
+    for i in range(26):  # fluffy head + cheek tufts
+        if i < 18:
+            d = Vector((random.uniform(-0.8, 0.8), random.uniform(0.4, 1.2), random.uniform(0.3, 0.9))).normalized()
+            col = random.choice([C["fur"], C["fur_dark"], C["fur"]])
+        else:
+            sx = 1 if i % 2 else -1
+            d = Vector((sx * random.uniform(0.7, 1), random.uniform(-0.6, 0.1), random.uniform(-0.7, -0.2))).normalized()
+            col = C["fur_light"] if random.random() < 0.6 else C["fur"]
+        base = Hc + Vector((d.x * 0.27, d.y * 0.24, d.z * 0.24))
+        rig(B.cone(0.055, 0.0, 0.13, base + d * 0.03, col, seg=5, rot=orient(d)), "head")
+    # face
+    rig(B.sphere(0.13, (0, -0.37, 0.13), C["fur_light"], seg=14, rings=9, scale=(1.35, 0.7, 0.85)), "head")   # muzzle
+    rig(B.sphere(0.07, (0, -0.47, 0.16), C["snout"], seg=12, rings=8, scale=(1.3, 0.75, 0.8)), "head")
+    rig(B.sphere(0.03, (0, -0.52, 0.18), C["nose"], seg=8, rings=6, scale=(1.5, 0.6, 0.8)), "head")
+    rig(B.sphere(0.07, (0, -0.44, 0.06), C["nose"], seg=12, rings=7, scale=(1.5, 0.35, 0.45)), "head")    # grin
     for sx in (-1, 1):
-        ear_rot = Matrix.Rotation(-sx * 0.38, 4, "Y") @ Matrix.Rotation(0.12, 4, "X")
-        B.cone(0.1, 0.0, 0.3, (sx * 0.15, -0.22, 0.47), BODY, seg=8, rot=ear_rot)
-        B.cone(0.06, 0.0, 0.2, (sx * 0.15, -0.255, 0.45), INNER, seg=6, rot=ear_rot, scale=(1, 0.5, 1))
-        B.sphere(0.072, (sx * 0.1, -0.49, 0.17), EYE, seg=12, rings=8, scale=(1, 0.6, 1.15))
-        B.sphere(0.022, (sx * 0.11, -0.535, 0.2), FANG, seg=6, rings=4)  # eye glint
-        B.cone(0.022, 0.0, 0.075, (sx * 0.045, -0.49, 0.02), FANG, seg=5, rot=Matrix.Rotation(math.pi + 0.25, 4, "X"))
-        B.sphere(0.045, (sx * 0.1, 0.17, -0.2), BODY, seg=8, rings=6)
-        B.cone(0.012, 0.0, 0.06, (sx * 0.1, 0.19, -0.26), FANG, seg=4, rot=Matrix.Rotation(math.pi, 4, "X"))
-    B.sphere(0.035, (0, -0.52, 0.08), INNER, seg=8, rings=6, scale=(1.3, 0.7, 0.8))  # snout
-    body = B.obj("Bat_" + name)
-    pts = wing_points()
-    wings = []
-    for side in (1, -1):
-        W = Builder()
-        P = [(side * x, y) for x, y in pts]
-        W.poly(P, WING, z=0.0, smooth=True)
-        bone_tips = [(1.36, -0.13), (1.05, 0.28), (0.72, 0.30), (0.38, 0.28)]
-        W.cyl_between((0, -0.08, 0.01), (side * 1.05, -0.36, 0.01), 0.018, BODY, seg=5)
-        for tx, ty in bone_tips:
-            W.cyl_between((side * 1.0, -0.33, 0.01), (side * tx, ty, 0.01), 0.011, BODY, seg=4)
-        W.sphere(0.03, (side * 1.04, -0.36, 0.015), BODY, seg=6, rings=5)
-        wo = W.obj(("WingL_" if side > 0 else "WingR_") + name, parent=body, loc=(side * 0.16, -0.02, 0.05))
-        wo.rotation_mode = "XYZ"
-        wings.append((wo, side))
-    scn = bpy.context.scene
-    scn.frame_start, scn.frame_end = 1, 17
-    for f, a in ((1, -0.6), (5, 0.1), (9, 0.65), (13, 0.1), (17, -0.6)):
-        for wo, side in wings:
-            wo.rotation_euler = (0.0, a * side, 0.0)
-            wo.keyframe_insert("rotation_euler", frame=f)
-    return True
+        rig(B.cone(0.022, 0.0, 0.07, (sx * 0.05, -0.475, 0.035), C["fang"], seg=6, rot=Matrix.Rotation(math.pi + 0.2, 4, "X")), "head")
+        rig(B.sphere(0.078, (sx * 0.115, -0.39, 0.27), C["eye"], seg=14, rings=10, scale=(1, 0.6, 1.08)), "head")
+        rig(B.sphere(0.036, (sx * 0.118, -0.432, 0.262), C["pupil"], seg=10, rings=7, scale=(0.9, 0.45, 1.25)), "head")
+        rig(B.sphere(0.016, (sx * 0.095, -0.44, 0.3), C["glint"], seg=6, rings=4), "head")
+        brow_rot = Matrix.Rotation(-sx * 0.42, 4, "Y") @ Matrix.Rotation(0.25, 4, "X")
+        rig(B.box((0.15, 0.05, 0.04), (sx * 0.12, -0.4, 0.37), C["brow"], 0.015, rot=brow_rot), "head")
+        # ears: tall, flattened, pink inside
+        ear = "ear_L" if sx > 0 else "ear_R"
+        er = Matrix.Rotation(-sx * 0.3, 4, "Y") @ Matrix.Rotation(-0.1, 4, "X")
+        rig(B.cone(0.19, 0.015, 0.58, Vector((sx * 0.21, -0.15, 0.6)), C["fur"], seg=14, rot=er, scale=(1, 0.42, 1), smooth=True), ear)
+        inner_off = er @ Vector((0, -0.045, 0))
+        rig(B.cone(0.135, 0.008, 0.46, Vector((sx * 0.21, -0.15, 0.58)) + inner_off.to_3d(), C["ear_in"], seg=12, rot=er, scale=(1, 0.3, 1), smooth=True), ear)
+        for k in range(3):
+            d = Vector((sx * 0.6, -0.4, 0.7 + k * 0.1)).normalized()
+            rig(B.cone(0.04, 0.0, 0.1, Vector((sx * (0.13 + k * 0.03), -0.22, 0.38)), C["fur_light"], seg=5, rot=orient(d)), ear)
+
+    # -------- arms, fingers, legs (rigid on their bones)
+    for side, sfx in ((1, "_L"), (-1, "_R")):
+        j = bat_layout(side)
+        rig(B.sphere(0.08, j["S"], C["fur"], seg=10, rings=7), "upperarm" + sfx)
+        rig(B.cyl_between(j["S"], j["E"], 0.05, C["bone"], seg=8, r2=0.035), "upperarm" + sfx)
+        rig(B.sphere(0.04, j["E"], C["bone"], seg=8, rings=6), "forearm" + sfx)
+        rig(B.cyl_between(j["E"], j["W"], 0.036, C["bone"], seg=8, r2=0.026), "forearm" + sfx)
+        rig(B.sphere(0.034, j["W"], C["bone"], seg=8, rings=6), "hand" + sfx)
+        rig(B.cyl_between(j["W"], j["T"], 0.02, C["bone"], seg=6), "thumb" + sfx)
+        rig(B.cone(0.02, 0.0, 0.07, j["T"] + Vector((0, -0.025, 0)), C["claw"], seg=6, rot=Matrix.Rotation(math.pi / 2 + 0.3, 4, "X")), "thumb" + sfx)
+        for d in ("D2", "D3", "D4", "D5"):
+            mid = j["W"].lerp(j[d], 0.55)
+            rig(B.cyl_between(j["W"], mid, 0.017, C["bone"], seg=6, r2=0.013), d.lower() + sfx)
+            rig(B.cyl_between(mid, j[d], 0.013, C["bone"], seg=5, r2=0.006), d.lower() + sfx)
+            rig(B.sphere(0.018, mid, C["bone"], seg=6, rings=5), d.lower() + sfx)
+        rig(B.cyl_between(j["H"], j["A"], 0.035, C["fur_dark"], seg=7, r2=0.025), "leg" + sfx)
+        for k in (-1, 0, 1):   # curled toe claws
+            tip = j["FT"] + Vector((k * 0.03, -0.04, -0.02))
+            rig(B.cyl_between(j["A"], j["FT"] + Vector((k * 0.025, 0, 0)), 0.014, C["fur_dark"], seg=5), "foot" + sfx)
+            rig(B.cyl_between(j["FT"] + Vector((k * 0.025, 0, 0)), tip, 0.011, C["claw"], seg=5, r2=0.002), "foot" + sfx)
+
+        # -------- wing membrane panels (skinned by distance to the bones)
+        def ring_grid(Pfun, nu, nv, paint_fn, fan=False):
+            rows = []
+            for iu in range(nu + 1):
+                u = iu / nu
+                if fan and iu == 0:
+                    rows.append([B.bm.verts.new(Pfun(0.0, 0.5))] * (nv + 1))
+                    continue
+                rows.append([B.bm.verts.new(Pfun(u, iv / nv)) for iv in range(nv + 1)])
+            vs = []
+            for iu in range(nu):
+                for iv in range(nv):
+                    a, b, c, d = rows[iu][iv], rows[iu][iv + 1], rows[iu + 1][iv + 1], rows[iu + 1][iv]
+                    quad = [a, b, c, d] if not (fan and iu == 0) else [a, c, d]
+                    try:
+                        f = B.bm.faces.new(quad)
+                    except ValueError:
+                        continue
+                    f.material_index = B.mi(paint_fn((iu + 0.5) / nu, (iv + 0.5) / nv))
+                    f.smooth = True
+            for r in rows:
+                vs.extend(r)
+            auto(set(vs))
+
+        def membrane_paint(u, v):
+            return C["wing_light"] if (u * 7 + v * 3 + random.random() * 2) % 3 < 0.9 else C["wing"]
+
+        W = j["W"]
+        panels = [("D2", "D3", 0.03), ("D3", "D4", 0.2), ("D4", "D5", 0.15)]
+        for a_, b_, depth in panels:
+            ta, tb = j[a_], j[b_]
+            mid = (ta + tb) / 2
+            inward = (W - mid).normalized()
+
+            def Pf(u, v, ta=ta, tb=tb, inward=inward, depth=depth):
+                q = ta.lerp(tb, v) + inward * depth * math.sin(math.pi * v)
+                return W.lerp(q, u)
+            ring_grid(Pf, 6, 5, membrane_paint, fan=True)
+            for vv in (0.35, 0.68):   # orange veins as thin ribbons on both faces
+                vein_ribbon(B, lambda u, vv=vv, Pf=Pf: Pf(u, vv + 0.08 * math.sin(u * 7)), 0.15, 0.9, C["vein"], auto)
+        # plagiopatagium: finger 5 -> arm -> body -> ankle
+        S_, E_, A_, D5 = j["S"], j["E"], j["A"], j["D5"]
+
+        def arm_line(v):
+            return W.lerp(E_, v * 2) if v < 0.5 else E_.lerp(S_ + Vector((0, 0.06, -0.02)), (v - 0.5) * 2)
+
+        def trail(v):
+            m = D5.lerp(A_, v)
+            inward = (E_ - (D5 + A_) / 2).normalized()
+            return m + inward * 0.17 * math.sin(math.pi * v)
+
+        def Pplag(u, v):
+            return arm_line(v).lerp(trail(v), u)
+        ring_grid(Pplag, 5, 7, membrane_paint)
+        for vv in (0.25, 0.5, 0.75):
+            vein_ribbon(B, lambda u, vv=vv: Pplag(u, vv + 0.05 * math.sin(u * 6)), 0.08, 0.85, C["vein"], auto)
+        # propatagium: leading edge membrane in front of the elbow
+        def Pprop(u, v):
+            lead = S_.lerp(W, v) + Vector((0, -0.07 * math.sin(math.pi * v), 0.01))
+            armp = S_.lerp(E_, v * 2) if v < 0.5 else E_.lerp(W, (v - 0.5) * 2)
+            return lead.lerp(armp, u)
+        ring_grid(Pprop, 3, 6, lambda u, v: C["wing"])
+
+    # -------- finalize: vertex colors, 3 materials, skin weights
+    finalize_bat(B, weights, arm, name)
+    return False   # rigged, but animated in game code (no baked clip)
+
+
+def vein_ribbon(B, curve, u0, u1, paint, auto, n=8, w=0.011):
+    for zoff in (0.004, -0.004):
+        pts = [curve(u0 + (u1 - u0) * i / n) + Vector((0, 0, zoff)) for i in range(n + 1)]
+        vs, prev = [], None
+        for i, p in enumerate(pts):
+            t = pts[min(i + 1, n)] - pts[max(i - 1, 0)]
+            side = t.cross(Vector((0, 0, 1))).normalized() * w * (1 - 0.6 * i / n)
+            pair = (B.bm.verts.new(p + side), B.bm.verts.new(p - side))
+            if prev:
+                quad = [prev[0], pair[0], pair[1], prev[1]] if zoff > 0 else [prev[1], pair[1], pair[0], prev[0]]
+                f = B.bm.faces.new(quad)
+                f.material_index = B.mi(paint)
+            vs += pair
+            prev = pair
+        auto(vs)
+
+
+def make_bat_material(name, kind):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    p = nt.nodes.get("Principled BSDF")
+    ca = nt.nodes.new("ShaderNodeVertexColor")
+    ca.layer_name = "Col"
+    nt.links.new(ca.outputs["Color"], p.inputs["Base Color"])
+    p.inputs["Roughness"].default_value = 0.8 if kind != "glow" else 0.3
+    if kind == "glow":
+        key = "Emission Color" if "Emission Color" in p.inputs else "Emission"
+        nt.links.new(ca.outputs["Color"], p.inputs[key])
+        p.inputs["Emission Strength"].default_value = 3.0
+    m.use_backface_culling = kind != "wing"
+    return m
+
+
+def finalize_bat(B, weights, arm, name):
+    bm = B.bm
+    # bone segments for automatic membrane weights
+    pose_pts = {b.name: (b.head_local.copy(), b.tail_local.copy()) for b in arm.data.bones}
+    cand = [n for n in BAT_BONES if n.split("_")[0] in ("upperarm", "forearm", "d2", "d3", "d4", "d5", "leg", "body")]
+    deform = bm.verts.layers.deform.verify()
+    idx = {n: i for i, n in enumerate(BAT_BONES)}
+    for verts, w in weights:
+        for v in verts:
+            if not v.is_valid:
+                continue
+            if w is None:
+                scores = []
+                for n in cand:
+                    if n.endswith("_L") and v.co.x < -0.05 or n.endswith("_R") and v.co.x > 0.05:
+                        continue
+                    h, t = pose_pts[n]
+                    d = seg_dist(v.co, h, t)
+                    if n == "body":
+                        d += 0.12
+                    scores.append((1.0 / (d + 0.02) ** 4, n))
+                scores.sort(reverse=True)
+                scores = scores[:3]
+                tot = sum(s for s, _ in scores)
+                w = {n: s / tot for s, n in scores}
+            for n, val in w.items():
+                v[deform][idx[n]] = val
+    # colors + material kinds
+    col = bm.loops.layers.color.get("Col")
+    kinds = ["fur", "wing", "glow"]
+    for f in bm.faces:
+        paint = B.mats[f.material_index]
+        for l in f.loops:
+            l[col] = (*paint.lin, 1.0)
+        f.material_index = kinds.index(paint.kind)
+    me = bpy.data.meshes.new("Bat_" + name)
+    o = bpy.data.objects.new("Bat_" + name, me)
+    bpy.context.scene.collection.objects.link(o)
+    for n in BAT_BONES:   # groups must exist before writing the mesh, or the weights are dropped
+        o.vertex_groups.new(name=n)
+    bm.normal_update()
+    bm.to_mesh(me)
+    bm.free()
+    for k in kinds:
+        me.materials.append(make_bat_material("bat_" + k, k))
+    o.parent = arm
+    mod = o.modifiers.new("Armature", "ARMATURE")
+    mod.object = arm
+    bpy.context.view_layer.update()   # builds the armature's pose bones (needed for skin export)
+    print("[bat-siege] rig bones:", len(arm.pose.bones) if arm.pose else 0)
+    return o
+
+
+def pose_bat_preview(arm, phase):
+    """Rough flap pose for the preview renders only (the game has its own animation)."""
+    from mathutils import Quaternion
+    c, s = math.cos(phase * math.tau), math.sin(phase * math.tau)
+    fold = max(0.0, -s)
+    for side, sfx in ((1, "_L"), (-1, "_R")):
+        def rot(bn, axis, ang):
+            pb = arm.pose.bones[bn]
+            pb.rotation_mode = "QUATERNION"
+            R = arm.data.bones[bn].matrix_local.to_quaternion()
+            pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(R.inverted() @ Vector(axis), ang)
+        rot("upperarm" + sfx, (0, 1, 0), -side * (0.15 + 0.75 * c))
+        rot("upperarm" + sfx, (0, 0, 1), side * (fold * 0.35))
+        rot("forearm" + sfx, (0, 0, 1), side * fold * 0.9)
+        rot("hand" + sfx, (0, 0, 1), side * fold * 0.8)
+        for d, k in (("d2", 0.5), ("d3", 0.5), ("d4", 0.25)):
+            rot(d + sfx, (0, 0, 1), side * fold * k)
+    bpy.context.view_layer.update()
 
 
 def ghost():
@@ -787,6 +1079,9 @@ def export(name, animated):
     base = dict(filepath=path, export_format="GLB", use_selection=True, export_apply=True,
                 export_yup=True, export_animations=animated)
     attempts = [dict(base, export_animation_mode="SCENE"), base] if animated else [base]
+    if any(o.type == "ARMATURE" for o in objs):   # rigged bats: keep skin + vertex colors
+        base["export_apply"] = False   # applying modifiers would bake away the armature skin
+        attempts = [dict(base, export_skins=True, export_vertex_color="ACTIVE"), dict(base, export_skins=True)]
     for kw in attempts:
         try:
             bpy.ops.export_scene.gltf(**kw)
@@ -810,10 +1105,11 @@ def preview(name):
     cam_data.lens = 50
     cam = bpy.data.objects.new("PreviewCam", cam_data)
     bpy.context.scene.collection.objects.link(cam)
-    cam.location = center + Vector((size * 0.9, -size * 1.5, size * 1.1))
+    rigged = any(o.type == "ARMATURE" for o in bpy.context.scene.objects)
+    cam.location = center + (Vector((size * 0.35, -size * 0.95, size * 0.75)) if rigged else Vector((size * 0.9, -size * 1.5, size * 1.1)))
     cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
     sun_data = bpy.data.lights.new("PreviewSun", "SUN")
-    sun_data.energy = 3.0
+    sun_data.energy = 4.5 if rigged else 3.0
     sun_data.color = hex_rgb("#c4d2ff")
     sun = bpy.data.objects.new("PreviewSun", sun_data)
     sun.rotation_euler = (math.radians(50), math.radians(10), math.radians(30))
@@ -826,7 +1122,7 @@ def preview(name):
     bg = scn.world.node_tree.nodes.get("Background")
     if bg:
         bg.inputs[0].default_value = (*hex_rgb("#1a2a44"), 1.0)
-        bg.inputs[1].default_value = 0.8
+        bg.inputs[1].default_value = 1.6 if rigged else 0.8
     scn.render.engine = "CYCLES"
     scn.cycles.samples = 24
     scn.cycles.device = "CPU"
@@ -834,6 +1130,15 @@ def preview(name):
     scn.render.filepath = os.path.join(PREVIEW_DIR, name + ".png")
     bpy.ops.render.render(write_still=True)
     print("[bat-siege] preview", scn.render.filepath)
+    rigs = [o for o in scn.objects if o.type == "ARMATURE"]
+    if rigs:   # extra renders of flap poses to check the skinning
+        for tag, phase in (("_downstroke", 0.0), ("_mid", 0.25), ("_upstroke", 0.75)):
+            for pb in rigs[0].pose.bones:
+                pb.rotation_mode = "QUATERNION"
+                pb.rotation_quaternion = (1, 0, 0, 0)
+            pose_bat_preview(rigs[0], phase)
+            scn.render.filepath = os.path.join(PREVIEW_DIR, name + tag + ".png")
+            bpy.ops.render.render(write_still=True)
 
 
 ASSETS = {
@@ -845,8 +1150,8 @@ ASSETS = {
     "block_bone_body": block_bone_body,
     "block_bone_cap": block_bone_cap,
     "castle_frame": castle_frame,
-    "bat_player": lambda: bat("player", "#2b2233", "#3b2d4b", "#ffb340"),
-    "bat_rival": lambda: bat("rival", "#3a1c1a", "#4d2420", "#ff4a3a"),
+    "bat_player": lambda: bat("player"),
+    "bat_rival": lambda: bat("rival"),
     "ghost": ghost,
     "moth": moth,
     "rock": rock,

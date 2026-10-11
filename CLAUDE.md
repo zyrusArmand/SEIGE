@@ -98,7 +98,7 @@ and ~150k triangles. Wall bricks only bevel their visible face and drop the hidd
 | Grid cells | cell (col c, row r) center = (-3.75 + 1.5c, 0.24, rowZ0 + 1.5r) relative to castle center |
 | Torches | empties named `TorchSocket_*` mark flames: add an additive glow sprite + flicker there |
 | Pond | child mesh `MoonReflection` turns red during the blood moon |
-| Animations | `bat_player`, `bat_rival`, `moth` contain one looping clip (wing flap). If the exporter split it into several clips, play all of them together on loop |
+| Animations | `bat_player`, `bat_rival` are skinned meshes on a 25-bone rig (shoulder/elbow/wrist/thumb/4 fingers per wing, head, ears, legs). No baked clip: `src/render/batRig.js` animates the bones in code (fold-on-upstroke wing beat, banking, ear flop, legs, stun flail). `moth` has a looping wing-flap |
 | Damage look | multiply each block's material color toward dark as HP drops (clone materials per block) |
 
 Use `block_stone_body_arch` (doorway + torches) for some ground-level stone blocks at random so castles

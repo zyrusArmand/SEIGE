@@ -1,6 +1,7 @@
 // Everything that moves: bats, moths, carried/falling cargo, ghost orbs, termites, landing ring.
 import * as THREE from 'three';
 import { bake, MATS, nodeLocal } from './assets.js';
+import { BatRig } from './batRig.js';
 import { CONFIG } from '../game/config.js';
 import { cellPos, blockTop, cellAt, inCastle } from '../game/game.js';
 
@@ -28,29 +29,29 @@ export class Actors {
     };
     this.cargoGeo.rock.computeVertexNormals();
 
-    // ---------------------------------------------------------------- bats
+    // ---------------------------------------------------------------- bats (skinned + rigged)
+    const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     this.bats = {};
-    for (const [side, name, scale] of [['you', 'player', 1.12], ['rival', 'rival', 1.06]]) {
+    for (const [side, name, scale] of [['you', 'player', 1.16], ['rival', 'rival', 1.1]]) {
       const root = models['bat_' + name];
-      const wl = 'WingL_' + name, wr = 'WingR_' + name;
-      const body = bake(root, { exclude: [wl, wr], glowBoost: 2.2 });
+      // a faint self-glow in the fur color keeps the bats readable against the night
+      const tint = side === 'you' ? '#2c2250' : '#3a2416';
+      const furMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, emissive: tint, emissiveIntensity: 0.6 });
+      const wingMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide, emissive: tint, emissiveIntensity: 0.45 });
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        const n = o.material.name;
+        o.material = n === 'bat_wing' ? wingMat : n === 'bat_glow' ? glowMat : furMat;
+        o.castShadow = n !== 'bat_glow'; o.frustumCulled = false;
+      });
       const g = new THREE.Group(); g.rotation.order = 'YXZ';
-      const model = new THREE.Group(); model.scale.setScalar(scale); g.add(model);
-      const bm = new THREE.Mesh(body.solid, MATS.solid); bm.castShadow = true; model.add(bm);
-      if (body.glow) model.add(new THREE.Mesh(body.glow, MATS.glow));
-      const wings = [];
-      for (const [nm, s] of [[wl, 1], [wr, -1]]) {
-        const node = root.getObjectByName(nm);
-        const wg = bake(node, { relativeTo: node });
-        const pivot = new THREE.Group(); pivot.position.copy(nodeLocal(root, nm));
-        const wm = new THREE.Mesh(wg.solid, MATS.solidSide); wm.castShadow = true; pivot.add(wm);
-        model.add(pivot); wings.push({ pivot, s });
-      }
+      const model = new THREE.Group(); model.scale.setScalar(scale); model.add(root); g.add(model);
+      const rig = new BatRig(root);
       const cargo = new THREE.Mesh(this.cargoGeo.rock, MATS.solid); cargo.castShadow = true;
-      cargo.position.set(0, -0.55, 0.05); cargo.visible = false; g.add(cargo);
+      cargo.position.set(0, -0.5, -0.05); cargo.visible = false; g.add(cargo);
       const blob = new THREE.Mesh(blobGeo, blobMat); blob.renderOrder = 1; scene.add(blob);
       scene.add(g);
-      this.bats[side] = { g, model, wings, cargo, blob, scale, eye: side === 'you' ? '#ffb340' : '#ff4a3a' };
+      this.bats[side] = { g, model, rig, cargo, blob, scale, eye: side === 'you' ? '#ffb340' : '#ff7a2a' };
     }
 
     // ---------------------------------------------------------------- moths (instanced)
@@ -100,6 +101,7 @@ export class Actors {
 
   // ------------------------------------------------------------------ per-frame
   update(game, dt, time, glow, sparkles, labelLayer, camera) {
+    this.dt = dt;
     for (const bat of [game.player, game.foe]) this.updateBat(game, bat, time, glow);
     this.updateMoths(game, time, glow);
     this.updateFalling(game, glow);
@@ -113,20 +115,19 @@ export class Actors {
     v.g.position.set(bat.pos.x, bat.pos.y, bat.pos.z);
     const stunned = bat.stun > 0;
     v.g.rotation.set(Math.min(0.35, bat.speed * 0.045), bat.yaw, stunned ? bat.flap * 1.5 : bat.roll);
-    const amp = 0.55 + Math.min(0.3, bat.speed * 0.045);
-    const a = Math.sin(bat.flap) * amp - 0.05;
-    for (const w of v.wings) w.pivot.rotation.set(0, 0, -w.s * -a);
-    // body bobs opposite to the wing beat for a lively flap
-    v.model.position.y = -Math.sin(bat.flap) * 0.04;
+    v.rig.update(bat.flap, { speed: bat.speed, stun: bat.stun, turn: -bat.roll, carrying: !!bat.carrying, dt: this.dt, time });
+    // body lifts on each downstroke
+    v.model.position.y = Math.sin(bat.flap) * 0.05;
     v.cargo.visible = !!bat.carrying;
     if (bat.carrying) {
       v.cargo.geometry = this.cargoGeo[bat.carrying];
       v.cargo.rotation.y = time * 0.8;
-      v.cargo.position.y = -0.55 + Math.sin(bat.flap) * 0.03;
+      v.cargo.position.y = -0.5 + Math.sin(bat.flap) * 0.05;
     }
-    // eye glow
-    this.v.set(0, 0.2 * v.scale, 0.5 * v.scale).applyEuler(v.g.rotation).add(v.g.position);
-    glow.add(this.v.x, this.v.y, this.v.z, 0.75, v.eye, stunned ? 0.3 : 0.85);
+    // eye glow follows the head bone
+    v.g.updateMatrixWorld(true);
+    v.rig.eyeWorld(this.v);
+    glow.add(this.v.x, this.v.y, this.v.z, 0.8, v.eye, stunned ? 0.3 : 0.75);
     if (stunned) {
       for (let i = 0; i < 3; i++) {
         const an = time * 6 + i * 2.09;

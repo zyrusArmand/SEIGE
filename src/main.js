@@ -392,6 +392,7 @@ function frame() {
   camera.position.copy(camTarget).addScaledVector(camDir, camDist);
   camera.position.x += sx; camera.position.z += sz;
   camera.lookAt(camTarget.x + sx * 0.5, camTarget.y, camTarget.z + sz * 0.5);
+  if (window.__batSiege.camOverride) window.__batSiege.camOverride(camera, game);   // test hook
   renderer.render(scene, camera);
 
   if (DEBUG) {
