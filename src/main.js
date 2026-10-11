@@ -8,6 +8,7 @@ import { CastleView } from './render/castles.js';
 import { Actors } from './render/actors.js';
 import { GlowBatch, Sparkles, Debris, FloatText } from './render/fx.js';
 import { initAudio, sfx, setMuted, isMuted } from './audio.js';
+import { Tutorial } from './ui/tutorial.js';
 
 const $ = (id) => document.getElementById(id);
 const MOBILE = matchMedia('(pointer:coarse)').matches;
@@ -30,6 +31,7 @@ const camTarget = new THREE.Vector3(0, 0, 0.9);
 const camDir = new THREE.Vector3(0, 24, 12.5).normalize();
 let camDist = 30;
 let shakeAmt = 0;
+let finale = null;   // end-of-match camera move + fireworks
 
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -46,6 +48,7 @@ addEventListener('resize', resize); resize();
 const game = new Game();
 let world, castles, actors, glow, sparkles, debris, floats;
 let tool = null, hoverCell = null;
+const tutorial = new Tutorial({ game, camera, toast: (m, i, d) => toast(m, i, d), tools: [...document.querySelectorAll('.tool')] });
 
 const BLOCK_COLORS = {
   wood: ['#d97a2b', '#c4682a', '#8f4a22', '#e58e40'],
@@ -62,8 +65,8 @@ const ui = {
 const tools = [...document.querySelectorAll('.tool')];
 function setTool(t) { tool = t; for (const b of tools) b.setAttribute('aria-pressed', String(b.dataset.tool === t)); }
 let toastT = 0;
-function toast(msg, info = false) {
-  ui.toast.textContent = msg; ui.toast.classList.toggle('info', info); ui.toast.classList.add('on'); toastT = 1.9;
+function toast(msg, info = false, dur = 1.9) {
+  ui.toast.textContent = msg; ui.toast.classList.toggle('info', info); ui.toast.classList.add('on'); toastT = dur;
 }
 function nope(btn, msg) {
   if (btn) { btn.classList.remove('shake'); void btn.offsetWidth; btn.classList.add('shake'); }
@@ -181,16 +184,40 @@ function tapMarker(p) {
 // ------------------------------------------------------------------ screens
 $('playBtn').addEventListener('click', () => {
   initAudio(); sfx('start');
-  $('startScreen').hidden = true; setHud(true); game.start();
-  setTimeout(() => toast('Grab moths, then fly home to build', true), 400);
+  $('startScreen').hidden = true; setHud(true); game.start(); intro();
+  if (!tutorial.active) setTimeout(() => toast('Grab moths, then fly home to build', true), 400);
 });
 $('againBtn').addEventListener('click', () => {
   initAudio(); sfx('start');
-  resetViews(); game.reset(); $('endScreen').hidden = true; game.start();
+  resetViews(); game.reset(); $('endScreen').hidden = true; game.start(); intro();
 });
+function intro() {
+  ui.banner.className = 'banner go'; ui.banner.innerHTML = 'Fly!<small>Build up. Knock them down.</small>';
+  requestAnimationFrame(() => ui.banner.classList.add('on'));
+  setTimeout(() => sfx('fly'), 120);
+  setTimeout(() => ui.banner.classList.remove('on'), 1300);
+}
 function setHud(on) { for (const id of ['hudTop', 'hudBottom', 'muteBtn']) $(id).style.opacity = on ? '' : '0'; }
+function updateFinale(dt) {
+  if (!finale) return;
+  finale.t += dt; finale.next -= dt;
+  const castle = finale.outcome === 'lose' ? game.rival : game.you;
+  if (finale.next <= 0 && finale.t < 6) {
+    finale.next = finale.outcome === 'win' ? 0.32 : 0.5;
+    const p = { x: (Math.random() - 0.5) * 8, y: 2.5 + Math.random() * 2, z: castle.cz + (Math.random() - 0.5) * 3 };
+    if (finale.outcome === 'win') {
+      const col = ['#3fd3b6', '#ffd27a', '#ff8a5c', '#c9b8ff'][(Math.random() * 4) | 0];
+      sparkles.burst(p, col, 22, 3.2, 0.5, 1.1); sparkles.ring(p, '#ffffff', 10, 3, 0.3); sfx('firework');
+    } else if (finale.outcome === 'lose') {
+      const loser = game.you, c = (Math.random() * 6) | 0, r = (Math.random() * 3) | 0;
+      const b = loser.cells[r][c];
+      if (b) { const q = cellPos(loser, c, r); q.y = blockTop(loser, c, r); debris.burst(q, BLOCK_COLORS[b.type], 6, 1.4, 0.8); b.shake = 0.3; }
+    }
+  }
+}
 function resetViews() {
-  setTool(null);
+  finale = null;
+  setTool(null); tutorial.reset();
   sparkles.clear(); debris.clear(); floats.clear(); actors.clear();
   ui.timer.classList.remove('blood'); ui.vignette.className = 'vignette';
 }
@@ -215,6 +242,7 @@ function topOf(side, c, r, level) {
 }
 function handleEvents() {
   for (const ev of game.events) {
+    tutorial.onEvent(ev);
     switch (ev.type) {
       case 'place': {
         const p = topOf(ev.side, ev.c, ev.r, ev.level);
@@ -268,7 +296,7 @@ function handleEvents() {
         sparkles.burst(ev.pos, '#ffb347', 9, 1.5, 0.4);
         if (ev.side === 'you') {
           sfx('moth'); floats.add(ev.pos, '+1', '#ffd27a', 19);
-          ui.mothBox.classList.remove('bump'); void ui.mothBox.offsetWidth; ui.mothBox.classList.add('bump');
+          flyToCounter(ev.pos);
         }
         break;
       }
@@ -306,18 +334,40 @@ function handleEvents() {
       }
       case 'bloodMoon':
         sfx('blood'); shake(0.2);
+        ui.banner.className = 'banner';
         ui.banner.innerHTML = 'Blood moon<small>Every attack does double damage</small>';
         ui.banner.classList.add('on'); setTimeout(() => ui.banner.classList.remove('on'), 2800);
         ui.timer.classList.add('blood'); ui.vignette.classList.add('on');
         break;
       case 'end':
         sfx(ev.outcome === 'win' ? 'win' : 'lose'); setTool(null);
-        setTimeout(() => showEnd(ev.outcome), 1100);
+        finale = { t: 0, outcome: ev.outcome, next: 0 };
+        setTimeout(() => showEnd(ev.outcome), 1700);
         break;
       default: break;
     }
   }
   game.events.length = 0;
+}
+
+// eaten moths fly up into the moth counter
+const MOTH_SVG = document.querySelector('#mothBox svg').outerHTML;
+const _fp = new THREE.Vector3();
+function flyToCounter(pos) {
+  _fp.set(pos.x, pos.y, pos.z).project(camera);
+  const x0 = (_fp.x + 1) / 2 * innerWidth, y0 = (1 - _fp.y) / 2 * innerHeight;
+  const r = ui.mothBox.querySelector('svg').getBoundingClientRect();
+  const d = document.createElement('div'); d.className = 'flymoth'; d.innerHTML = MOTH_SVG;
+  d.style.transform = `translate(${x0}px,${y0}px) translate(-50%,-50%) scale(1.2)`;
+  $('fx').appendChild(d);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    d.style.transform = `translate(${r.left + r.width / 2}px,${r.top + r.height / 2}px) translate(-50%,-50%) scale(.7)`;
+    d.style.opacity = '0.9';
+  }));
+  setTimeout(() => {
+    d.remove();
+    ui.mothBox.classList.remove('bump'); void ui.mothBox.offsetWidth; ui.mothBox.classList.add('bump');
+  }, 480);
 }
 
 // ------------------------------------------------------------------ HUD update
@@ -350,8 +400,31 @@ function updateHud(dt) {
   if (key !== lastStatus) { lastStatus = key; ui.status.textContent = st; ui.status.className = 'status ' + cls; }
 }
 
+// ------------------------------------------------------------------ adaptive quality
+// If a phone can't hold ~50 fps, step down resolution and shadow detail (once per step, never back up).
+const quality = { tier: 2, t: 0, frames: 0, warm: 2.5, locked: /[?&]hq/.test(location.search) };
+function adaptQuality(dt) {
+  if (quality.locked || quality.tier === 0 || game.state !== 'play' || document.hidden) return;
+  if (quality.warm > 0) { quality.warm -= dt; return; }
+  quality.t += dt; quality.frames++;
+  if (quality.t < 3) return;
+  const fps = quality.frames / quality.t;
+  quality.t = 0; quality.frames = 0;
+  if (fps >= 48) return;
+  quality.tier--;
+  const dpr = Math.min(window.devicePixelRatio || 1, quality.tier === 1 ? 1.25 : 1);
+  renderer.setPixelRatio(dpr); resize();
+  const sz = quality.tier === 1 ? 1024 : 512;
+  const sh = world.moon.shadow;
+  if (sh.mapSize.x > sz) { sh.mapSize.set(sz, sz); if (sh.map) { sh.map.dispose(); sh.map = null; } }
+  console.info(`[bat-siege] fps ${fps.toFixed(0)}: quality -> tier ${quality.tier}`);
+  quality.warm = 1.5;
+}
+
 // ------------------------------------------------------------------ main loop
 const clock = new THREE.Clock();
+const _camT = new THREE.Vector3();
+let lastBeat = 0;
 let time = 0, fpsT = 0, fpsN = 0, fps = 0;
 function frame() {
   requestAnimationFrame(frame);
@@ -359,6 +432,8 @@ function frame() {
   time += dt;
   game.update(dt);
   handleEvents();
+  const beat = Math.floor(game.player.flap / (Math.PI * 2));
+  if (beat !== lastBeat) { lastBeat = beat; if (game.state === 'play' && game.player.stun <= 0) sfx('flap', { vol: 0.6 + Math.min(1, game.player.speed / 6) * 0.6 }); }
 
   glow.begin();
   world.setBlood(game.blood ? game.bloodT : 0);
@@ -376,6 +451,11 @@ function frame() {
   // pond + moon reflection glow
   glow.add(world.pond.position.x, 0.3, world.pond.position.z, 6.2, game.blood ? '#ff4a3a' : '#3fd8ff', 0.18 + Math.sin(time * 1.3) * 0.03);
   glow.add(world.reflWorld.x, 0.25, world.reflWorld.z, 2.4, game.blood ? '#ff5a40' : '#fff6dc', 0.55);
+  tutorial.update(dt);
+  if (tutorial.highlight) {
+    const h = tutorial.highlight, k = 0.5 + 0.5 * Math.sin(time * 6);
+    glow.add(h.x, h.y, h.z, 2.2 + k * 0.8, '#7ff5dc', 0.35 + k * 0.25);
+  }
   sparkles.update(dt, glow);
   glow.end();
   debris.update(dt);
@@ -386,12 +466,20 @@ function frame() {
     if (r.t > 0.45) { scene.remove(r.m); r.m.material.dispose(); tapRings.splice(i, 1); }
   }
   updateHud(dt);
+  adaptQuality(dt);
 
+  updateFinale(dt);
   shakeAmt = Math.max(0, shakeAmt - dt * 1.6);
   const sx = (Math.random() - 0.5) * shakeAmt, sz = (Math.random() - 0.5) * shakeAmt;
-  camera.position.copy(camTarget).addScaledVector(camDir, camDist);
+  let dist = camDist; const tgt = _camT.copy(camTarget);
+  if (finale && !REDUCED) {   // ease the camera toward the castle that decided the match
+    const k = Math.min(1, finale.t / 1.4), e = k * k * (3 - 2 * k);
+    const cz = (finale.outcome === 'lose' ? game.rival : game.you).cz;
+    tgt.z += (cz - tgt.z) * 0.45 * e; dist *= 1 - 0.18 * e;
+  }
+  camera.position.copy(tgt).addScaledVector(camDir, dist);
   camera.position.x += sx; camera.position.z += sz;
-  camera.lookAt(camTarget.x + sx * 0.5, camTarget.y, camTarget.z + sz * 0.5);
+  camera.lookAt(tgt.x + sx * 0.5, tgt.y, tgt.z + sz * 0.5);
   if (window.__batSiege.camOverride) window.__batSiege.camOverride(camera, game);   // test hook
   renderer.render(scene, camera);
 

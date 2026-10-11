@@ -61,8 +61,12 @@ button{font:inherit;color:inherit}
 .tool:active{transform:scale(.92)}
 .tool[aria-pressed="true"]{border-color:var(--teal);box-shadow:0 0 0 2px rgba(63,211,182,.35),0 0 20px rgba(63,211,182,.5);transform:translateY(-4px)}
 .tool.poor{opacity:.45}
-.tool.ready{animation:ready 1.6s infinite}
-@keyframes ready{50%{box-shadow:0 0 16px rgba(255,180,80,.45)}}
+.tool.ready{animation:ready 1.1s infinite;border-color:rgba(255,200,120,.8)}
+@keyframes ready{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px);box-shadow:0 0 22px rgba(255,190,90,.75)}}
+.hint-arrow{position:fixed;left:0;top:0;pointer-events:none;color:#7ff5dc;display:flex;flex-direction:column;align-items:center;
+  font-family:var(--display);font-size:16px;text-shadow:0 2px 0 rgba(0,0,0,.6);filter:drop-shadow(0 0 8px rgba(63,211,182,.7));z-index:3}
+.hint-arrow svg{width:34px;height:34px}
+.hint-arrow[hidden]{display:none}
 .tool:focus-visible,.btn:focus-visible,.drop:focus-visible,.icon-btn:focus-visible{outline:3px solid #fff;outline-offset:2px}
 .tool.shake{animation:shake .35s}
 @keyframes shake{25%{transform:translateX(-5px)}50%{transform:translateX(5px)}75%{transform:translateX(-2px)}}
@@ -128,3 +132,8 @@ button{font:inherit;color:inherit}
 @media (max-width:380px){.tool{width:54px;height:54px}.tool svg{width:32px;height:32px}.lbl{font-size:15px}.tray{gap:6px;padding:7px}}
 @media (min-width:900px){.lbl{font-size:20px}.bar{max-width:230px;height:17px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.banner.go{color:#7ff5dc;text-shadow:0 3px 0 #06332b,0 0 34px rgba(63,211,182,.7)}
+.banner.go small{color:#d6fff4}
+.flymoth{position:absolute;left:0;top:0;width:30px;height:24px;transition:transform .45s cubic-bezier(.5,0,.8,.6),opacity .45s;
+  filter:drop-shadow(0 0 8px rgba(255,170,60,.9));will-change:transform}
+.flymoth svg{width:100%;height:100%}

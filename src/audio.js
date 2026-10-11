@@ -74,9 +74,11 @@ export function sfx(n, opt = {}) {
     case 'lose': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.34, 'triangle', 0.14, null, i * 0.16)); break;
     case 'start': [392, 523, 659].forEach((f, i) => tone(f, 0.18, 'triangle', 0.1, null, i * 0.08)); break;
     case 'tick': tone(1400, 0.05, 'sine', 0.05); break;
+    case 'flap': noise(0.16, 0.07 * (opt.vol ?? 1), 520, 0.8, 'lowpass', 0, 160); break;
+    case 'fly': tone(523, 0.12, 'triangle', 0.1); tone(784, 0.22, 'triangle', 0.1, null, 0.1); break;
+    case 'firework': noise(0.5, 0.25, 3000, 0.6, 'bandpass', 0, 600); tone(1800 + Math.random() * 900, 0.4, 'sine', 0.03, 600, 0.05); break;
     default: break;
   }
-  void opt;
 }
 
 // Night ambience: soft wind + occasional cricket chirps.
@@ -97,3 +99,9 @@ function startAmbience() {
   setTimeout(chirp, 1500);
   ambBus.gain.setTargetAtTime(1, AC.currentTime, 1.5);
 }
+
+// Pause all sound while the tab/app is in the background.
+document.addEventListener('visibilitychange', () => {
+  if (!AC) return;
+  if (document.hidden) AC.suspend(); else AC.resume();
+});
