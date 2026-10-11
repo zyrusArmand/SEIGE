@@ -449,12 +449,14 @@ function adaptQuality(dt) {
 
 // ------------------------------------------------------------------ main loop
 const clock = new THREE.Clock();
+const ROTATE = matchMedia('(orientation:landscape) and (max-height:500px) and (pointer:coarse)');
 const _camT = new THREE.Vector3();
 let lastBeat = 0;
 let time = 0, fpsT = 0, fpsN = 0, fps = 0;
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
+  if (ROTATE.matches) return;   // "turn your phone upright" screen: pause the match
   time += dt;
   game.update(dt);
   handleEvents();
