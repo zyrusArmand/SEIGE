@@ -25,7 +25,12 @@ keep them in one config file (`src/game/config.js`) so balance changes are one-l
 |---|---|---|---|---|
 | Wood | 1 | 40 | orange planks, gable roof cap | cheap filler |
 | Stone | 3 | 100 | grey bricks, crenellated cap | tank |
-| Bone | 3 | 70 | cream bone bricks, skull emblem, horned dome cap | heals the 4 adjacent blocks 2 HP/s |
+| Bone | 3 | 70 | cream bone bricks, skull battlements | heals the 4 adjacent blocks 2 HP/s |
+| Turret | 4 | 110 | stone base + cannon with a ghost gunner | max 2; fills its square (counts as 2 levels); see Ghost turret |
+
+All blocks share one castle style (bricks + battlements). The piece is chosen by position: corner squares
+become towers, edge squares become walls with battlements facing out, inside squares are keeps, and the two
+front-middle squares get a gate on the ground level. (Changed Oct 11 at Zyrus's request.)
 
 - Select a block in the tray, then tap a glowing square. Placing the same type on a level-1 square
   stacks it to level 2 (adds that type's HP). You can't mix types on one square. Max level 2.
@@ -49,14 +54,15 @@ keep them in one config file (`src/game/config.js`) so balance changes are one-l
   At 0 HP the block is destroyed.
 - Missing (empty square or open ground) shows "Miss" and a dust puff. No friendly fire.
 
-## Ghost turret (defense)
+## Ghost turret (buyable block, changed Oct 11 at Zyrus's request)
 
-- Each castle has one ghost floating over a back-corner square (player: col 0 row 2; rival: col 5
-  row 0). It works only while a block exists under it. Destroy that block and the ghost fades out.
-- Fires a homing purple orb at the enemy bat when within 7.2 units, every 2.0–2.6 s.
-  Orb speed 5.2, steering, 2.6 s life.
-- Hit: bat is stunned 1.2 s (spins, sinks, can't steer), **drops its cargo** where it is,
-  and loses 1 moth. "Ghosted!" text.
+- Not free at the start: buy it from the tray (4 moths) and place it on an empty square at home. Max 2.
+- A ghost sits in a cannon on top. Tap any rival block (no block selected needed) to aim all your turrets there.
+- **Bombard:** every ~3.2 s each turret lobs a ghost shell across the field at the chosen block: 16 damage
+  (x2 in the blood moon). If that block is destroyed, the target clears; tap another.
+- **Guard:** if the enemy bat comes within 7.2 units, the turret zaps it instead (homing orb, 2.0-2.6 s):
+  stun 1.2 s, drops cargo, loses 1 moth. "Ghosted!" text.
+- The AI buys one turret when it can afford it and aims at your best block (prefers your turrets).
 
 ## Blood moon (last 30 s)
 
@@ -66,10 +72,10 @@ keep them in one config file (`src/game/config.js`) so balance changes are one-l
 
 ## Controls
 
-- **Touch/mouse:** tap or drag anywhere to fly toward that point (the bat steers with momentum
-  and banks into turns). When a block is selected and the bat is home, tapping a castle square builds
-  instead of flying.
-- **Keyboard:** WASD/arrows fly, Space drops, 1–5 select tray buttons.
+- **Touch/mouse:** floating joystick. Put your thumb down anywhere and drag; the bat flies that way while
+  you hold (with momentum and banking) and hovers when you let go. A quick tap (no drag) builds on your
+  castle (block selected, bat home) or aims your turrets at a rival block.
+- **Keyboard:** WASD/arrows fly, Space drops, 1–6 select tray buttons.
 - Bat max speed 6.6 (AI 5.6), acceleration 4.5, flies at height 2.8 with a gentle bob.
 
 ## AI rival
@@ -86,10 +92,9 @@ Decides every 0.6–1.1 s:
 
 ## UI (see ART_GUIDE for styling)
 
-- **Top:** "Your Castle" teal bar + % (left), moth counter with moth icon (center) and timer chip
-  below it, "Rival Bat" orange bar + % (right).
-- **Bottom:** status line, then a glass tray with 5 buttons: Wood 1, Stone 3, Bone 3, Rock 2,
-  Termites 3 (cost badge bottom-right). Unaffordable buttons dim. Selected build button lifts and
+- **Top:** "You" teal bar + % (left), moth counter (center) with timer + mute below it, "Rival" bar + % (right).
+- **Bottom:** a glass tray with 6 buttons: Wood 1, Stone 3, Bone 3, Turret 4, Rock 2, Termites 3 (cost badge
+  bottom-right). Block buttons dim while you're away from home (no status text). Unaffordable buttons dim. Selected build button lifts and
   glows. Wrong taps shake the button and show a short toast with the reason.
 - **Drop!** button appears above the status line only while carrying.
 - Floating combat text over the world (+1, -60, Perfect!, Miss, Termites!, Ghosted! -1).

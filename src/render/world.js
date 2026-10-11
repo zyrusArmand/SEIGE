@@ -143,8 +143,8 @@ export function buildWorld(scene, models, mobile) {
     const castleZ = (z > 3.6 && z < 9.9) || (z < -3.6 && z > -9.9);
     return !(castleZ && Math.abs(x) < 5.9);
   };
-  scatter('grass_tuft', 190, fieldFree, { s0: 0.8, s1: 1.6, x0: -7, x1: 7, z0: -12, z1: 12, tilt: 0.15 });
-  scatter('rock_scatter', 14, (x, z) => fieldFree(x, z) && Math.abs(z) > 1.6, { s0: 0.7, s1: 1.4, shadow: true, x0: -7, x1: 7, z0: -12, z1: 12 });
+  scatter('grass_tuft', 110, fieldFree, { s0: 0.8, s1: 1.6, x0: -7, x1: 7, z0: -12, z1: 12, tilt: 0.15 });
+  scatter('rock_scatter', 6, (x, z) => fieldFree(x, z) && Math.abs(z) > 1.6, { s0: 0.7, s1: 1.4, shadow: true, x0: -7, x1: 7, z0: -12, z1: 12 });
 
   // ---------------------------------------------------------------- castle frames (static, baked)
   const frame = models.castle_frame;

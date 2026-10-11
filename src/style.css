@@ -142,3 +142,28 @@ button{font:inherit;color:inherit}
 .rotate svg{width:72px;height:72px;color:var(--moth);animation:tilt 1.6s ease-in-out infinite}
 @keyframes tilt{0%,30%{transform:rotate(-90deg)}60%,100%{transform:rotate(0)}}
 @media (orientation:landscape) and (max-height:500px) and (pointer:coarse){.rotate{display:flex}}
+
+/* ---- decluttered HUD (v2) */
+.hud-top{grid-template-columns:1fr auto 1fr;padding-top:calc(env(safe-area-inset-top,0px) + 8px)}
+.lbl{font-size:16px;display:flex;align-items:baseline;gap:6px}
+.side.right .lbl{justify-content:flex-end}
+.lbl .pct{font-family:var(--display);font-size:14px;color:#fff;opacity:.85;text-shadow:0 2px 0 rgba(0,0,0,.5)}
+.bar{height:12px;max-width:150px}
+.moths{font-size:24px;gap:4px}
+.moths svg{width:28px;height:22px}
+.timer-row{display:flex;align-items:center;gap:6px}
+.timer-row .icon-btn{position:static;width:28px;height:28px;border-radius:9px;pointer-events:auto}
+.timer-row .icon-btn svg{width:15px;height:15px}
+.timer{font-size:14px;padding:2px 9px}
+.tray{gap:6px;padding:7px;border-radius:19px}
+.tool{width:52px;height:52px;border-radius:14px}
+.tool svg{width:32px;height:32px}
+.tool .cost{font-size:14px}
+@media (max-width:380px){.tool{width:48px;height:48px}.tool svg{width:28px;height:28px}.tray{gap:5px;padding:6px}}
+.toast{top:calc(env(safe-area-inset-top,0px) + 74px);font-size:13px}
+.joy{position:fixed;left:0;top:0;width:116px;height:116px;margin:-58px 0 0 -58px;border-radius:50%;pointer-events:none;z-index:3;
+  background:radial-gradient(circle,rgba(255,255,255,.06),rgba(255,255,255,.12));border:2px solid rgba(200,210,255,.28);box-shadow:0 0 18px rgba(0,0,0,.3)}
+.joy i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,#d9e7ff,#8aa0d8);box-shadow:0 3px 10px rgba(0,0,0,.4);opacity:.85}
+.tray.away .tool:not(.atk){opacity:.38;filter:saturate(.5)}
+.tray.away .tool:not(.atk)[aria-pressed="true"]{opacity:.6}

@@ -73,12 +73,13 @@ const BLOCK_COLORS = {
   wood: ['#d97a2b', '#c4682a', '#8f4a22', '#e58e40'],
   stone: ['#bdb8ae', '#a29d94', '#8a857d'],
   bone: ['#efe6cf', '#e3d7b8', '#d6c8a3'],
+  turret: ['#7f7b86', '#6e6a76', '#b9a2ff'],
 };
 
 // ------------------------------------------------------------------ HUD
 const ui = {
   youBar: $('youBar'), rivalBar: $('rivalBar'), youPct: $('youPct'), rivalPct: $('rivalPct'),
-  moth: $('mothCount'), mothBox: $('mothBox'), timer: $('timer'), status: $('status'), drop: $('dropBtn'),
+  moth: $('mothCount'), mothBox: $('mothBox'), timer: $('timer'), tray: document.querySelector('.tray'), drop: $('dropBtn'),
   toast: $('toast'), banner: $('banner'), vignette: $('vignette'), debug: $('debug'),
 };
 const tools = [...document.querySelectorAll('.tool')];
@@ -103,11 +104,11 @@ for (const btn of tools) {
       const err = game.tryLoad(t);
       if (err) return nope(btn, err);
       setTool(null);
-      toast(t === 'rock' ? 'Rock loaded. Fly over the rival and drop it' : 'Termites loaded. Drop them on a big block', true);
+      toast(t === 'rock' ? 'Rock loaded. Fly over a rival block' : 'Termites loaded. Fly over a big block', true, 1.4);
     } else {
       setTool(tool === t ? null : t);
       sfx('tap');
-      if (tool && !game.player.home) toast('Fly home to place blocks', true);
+      if (tool && !game.player.home) toast('Fly home to build', true);
     }
   });
 }
@@ -144,11 +145,55 @@ function castleCellAt(e) {
   }
   return cl;
 }
-let steering = false;
+/** Which rival square is under the pointer (for aiming turrets). */
+function rivalCellAt(e) {
+  let p = pointAt(e, G.floor);
+  if (!p || !inCastle(game.rival, p.x, p.z, 0.3)) return null;
+  let cl = cellAt(game.rival, p.x, p.z);
+  for (let i = 0; i < 2 && cl; i++) {
+    const p2 = pointAt(e, blockTop(game.rival, cl.c, cl.r)); if (!p2) break;
+    const c2 = cellAt(game.rival, p2.x, p2.z); if (!c2) break;
+    cl = c2;
+  }
+  return cl;
+}
+
+// Floating joystick: put your thumb down anywhere and drag; the bat flies that way while you hold.
+// A quick tap (no drag) builds on your castle or aims your turrets at a rival block.
+const JOY_R = 58, TAP_MOVE = 12, TAP_TIME = 320;
+const joyEl = $('joy'), knobEl = $('joyKnob');
+const joy = { id: null, x0: 0, y0: 0, t0: 0, active: false, vx: 0, vz: 0 };
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
+  if (game.state !== 'play' || joy.id !== null) return;
+  joy.id = e.pointerId; joy.x0 = e.clientX; joy.y0 = e.clientY; joy.t0 = performance.now(); joy.active = false;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!MOBILE && joy.id === null) hoverCell = castleCellAt(e);
+  if (e.pointerId !== joy.id) return;
+  const dx = e.clientX - joy.x0, dy = e.clientY - joy.y0, d = Math.hypot(dx, dy);
+  if (!joy.active && d > TAP_MOVE) {
+    joy.active = true;
+    joyEl.style.transform = `translate(${joy.x0}px,${joy.y0}px)`; joyEl.hidden = false;
+  }
+  if (!joy.active) return;
+  const k = Math.min(1, d / JOY_R) / (d || 1);
+  joy.vx = dx * k; joy.vz = dy * k;            // screen up = toward the rival (camera looks down from the player's side)
+  knobEl.style.transform = `translate(${joy.vx * JOY_R}px,${joy.vz * JOY_R}px)`;
+});
+function endJoy(e) {
+  if (e.pointerId !== joy.id) return;
+  const tap = !joy.active && performance.now() - joy.t0 < TAP_TIME;
+  joy.id = null; joy.active = false; joy.vx = joy.vz = 0; joyEl.hidden = true;
+  if (tap && e.type === 'pointerup') handleTap(e);
+}
+canvas.addEventListener('pointerup', endJoy); canvas.addEventListener('pointercancel', endJoy);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+function handleTap(e) {
   if (game.state !== 'play') return;
-  if (tool && ['wood', 'stone', 'bone'].includes(tool) && game.player.home) {
+  if (tool && game.player.home) {
     const cl = castleCellAt(e);
     if (cl) {
       const err = game.tryBuild(cl.c, cl.r, tool);
@@ -156,49 +201,36 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
   }
-  steering = true; canvas.setPointerCapture(e.pointerId);
-  const p = pointAt(e, CONFIG.bat.height);
-  if (p) { game.input.target = { x: p.x, z: p.z }; game.input.keyMode = false; }
-  tapMarker(p);
-});
-canvas.addEventListener('pointermove', (e) => {
-  hoverCell = MOBILE ? null : castleCellAt(e);
-  if (steering) { const p = pointAt(e, CONFIG.bat.height); if (p) game.input.target = { x: p.x, z: p.z }; }
-});
-const endSteer = () => { steering = false; };
-canvas.addEventListener('pointerup', endSteer); canvas.addEventListener('pointercancel', endSteer);
-canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  const rc = rivalCellAt(e);
+  if (rc) {
+    const err = game.setTarget(rc.c, rc.r);
+    if (err) nope(tools.find((b) => b.dataset.tool === 'turret'), err);
+    return;
+  }
+  if (tool && !game.player.home) toast('Fly home to build', true);
+}
 
 const keys = {};
 const KEYMAP = { w: [0, -1], arrowup: [0, -1], s: [0, 1], arrowdown: [0, 1], a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0] };
-function syncKeys() {
+function updateMove() {
   let x = 0, z = 0;
   for (const k in KEYMAP) if (keys[k]) { x += KEYMAP[k][0]; z += KEYMAP[k][1]; }
-  game.input.keys.x = Math.sign(x); game.input.keys.z = Math.sign(z);
+  const l = Math.hypot(x, z);
+  if (l) { x /= l; z /= l; } else { x = joy.vx; z = joy.vz; }
+  game.input.move.x = x; game.input.move.z = z;
 }
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
-  if (KEYMAP[k]) { keys[k] = true; game.input.keyMode = true; syncKeys(); e.preventDefault(); return; }
+  if (KEYMAP[k]) { keys[k] = true; e.preventDefault(); return; }
   if (e.repeat) return;
   if (k === ' ') { e.preventDefault(); initAudio(); game.playerDrop(); }
-  const idx = '12345'.indexOf(k); if (idx >= 0 && tools[idx]) tools[idx].click();
+  const idx = '123456'.indexOf(k); if (idx >= 0 && tools[idx]) tools[idx].click();
   if (k === 'escape') setTool(null);
   if (k === 'm') muteBtn.click();
   if ((k === 'enter') && !$('startScreen').hidden) $('playBtn').click();
 });
-addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); if (KEYMAP[k]) { keys[k] = false; syncKeys(); } });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; syncKeys(); });
-
-// tiny ripple where you tap, so steering feels responsive
-const tapRings = [];
-let tapGeo, tapMat;
-function tapMarker(p) {
-  if (!p || !world) return;
-  if (!tapGeo) { tapGeo = new THREE.RingGeometry(0.2, 0.28, 28); tapGeo.rotateX(-Math.PI / 2); }
-  const m = new THREE.Mesh(tapGeo, (tapMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5, depthWrite: false })));
-  m.position.set(p.x, CONFIG.bat.height - 2.65, p.z); m.renderOrder = 4;
-  scene.add(m); tapRings.push({ m, t: 0 });
-}
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); if (KEYMAP[k]) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 // ------------------------------------------------------------------ screens
 $('playBtn').addEventListener('click', () => {
@@ -338,9 +370,18 @@ function handleEvent(ev) {
         } else floats.add(ev.pos, 'Ghosted!', '#c9b8ff', 18);
         break;
       }
-      case 'ghostFade': {
-        const tu = (ev.side === 'you' ? game.you : game.rival).turret;
-        floats.add(tu.pos, ev.side === 'you' ? 'Your ghost is gone!' : 'Ghost down!', '#c9b8ff', 18);
+      case 'target':
+        sfx('tap'); toast('Turrets aiming there', true, 1.2);
+        break;
+      case 'targetLost':
+        if (ev.side === 'you') toast('Target down! Tap another rival block', true, 1.6);
+        break;
+      case 'shellFire': sfx('zap'); break;
+      case 'shellHit': {
+        const p = V(ev.pos);
+        sparkles.burst(p, '#b49bff', 10, 2, 0.4); debris.burst(p, ['#8a7bc0', '#5a4f80'], 3, 1.2, 0.6);
+        sfx('thud'); shake(ev.side === 'you' ? 0.2 : 0.08);
+        floats.add(p.clone().setY(p.y + 0.5), '-' + ev.dmg, ev.byPlayer ? '#d9ccff' : '#ff8a6a', 20);
         break;
       }
       case 'heal': {
@@ -399,8 +440,8 @@ let lastSec = -1, lastMoths = -1, lastYou = -1, lastRival = -1, lastStatus = '';
 function updateHud(dt) {
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) ui.toast.classList.remove('on'); }
   const yc = completion(game.you), rc = completion(game.rival);
-  if (yc !== lastYou) { lastYou = yc; ui.youBar.style.width = (yc * 100).toFixed(1) + '%'; ui.youPct.textContent = Math.round(yc * 100) + '% built'; }
-  if (rc !== lastRival) { lastRival = rc; ui.rivalBar.style.width = (rc * 100).toFixed(1) + '%'; ui.rivalPct.textContent = Math.round(rc * 100) + '% built'; }
+  if (yc !== lastYou) { lastYou = yc; ui.youBar.style.width = (yc * 100).toFixed(1) + '%'; ui.youPct.textContent = Math.round(yc * 100) + '%'; }
+  if (rc !== lastRival) { lastRival = rc; ui.rivalBar.style.width = (rc * 100).toFixed(1) + '%'; ui.rivalPct.textContent = Math.round(rc * 100) + '%'; }
   const p = game.player;
   if (p.moths !== lastMoths) {
     lastMoths = p.moths; ui.moth.textContent = p.moths;
@@ -415,13 +456,9 @@ function updateHud(dt) {
   const showDrop = playing && !!p.carrying;
   if (ui.drop.hidden === showDrop) ui.drop.hidden = !showDrop;
   if (showDrop) ui.drop.classList.toggle('hot', game.predictLanding(p).perfect);
-  let st, cls;
-  if (p.stun > 0) { st = 'Ghosted! Shaking it off'; cls = 'stun'; }
-  else if (p.carrying) { st = p.pos.z < -3.5 ? 'Line up the ring, then Drop!' : 'Fly to the rival castle'; cls = 'carry'; }
-  else if (p.home) { st = tool && tool !== 'rock' && tool !== 'termites' ? 'Tap a glowing square to build' : 'Home. Pick a block or load an attack'; cls = 'home'; }
-  else { st = 'Away. Building paused'; cls = 'away'; }
-  const key = st + cls;
-  if (key !== lastStatus) { lastStatus = key; ui.status.textContent = st; ui.status.className = 'status ' + cls; }
+  // no status text: block buttons dim while you're away (you can only build at home)
+  const away = playing && !p.home;
+  if (away !== lastStatus) { lastStatus = away; ui.tray.classList.toggle('away', away); }
 }
 
 // ------------------------------------------------------------------ adaptive quality
@@ -458,6 +495,7 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   if (ROTATE.matches) return;   // "turn your phone upright" screen: pause the match
   time += dt;
+  updateMove();
   game.update(dt);
   handleEvents();
   const beat = Math.floor(game.player.flap / (Math.PI * 2));
@@ -467,7 +505,6 @@ function frame() {
   world.setBlood(game.blood ? game.bloodT : 0);
   castles.update(game, dt, time, glow, REDUCED);
   castles.updateMarks(game, tool, hoverCell, dt, time);
-  castles.updateGhosts(game, time, glow);
   actors.update(game, dt, time, glow, sparkles, $('fx'), camera);
   // castle frame torches flicker
   for (const f of world.frames) {
@@ -488,11 +525,6 @@ function frame() {
   glow.end();
   debris.update(dt);
   floats.update(dt);
-  for (let i = tapRings.length - 1; i >= 0; i--) {
-    const r = tapRings[i]; r.t += dt;
-    r.m.scale.setScalar(1 + r.t * 3); r.m.material.opacity = 0.5 * (1 - r.t / 0.45);
-    if (r.t > 0.45) { scene.remove(r.m); r.m.material.dispose(); tapRings.splice(i, 1); }
-  }
   updateHud(dt);
   adaptQuality(dt);
 

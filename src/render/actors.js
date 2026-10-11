@@ -212,6 +212,17 @@ export class Actors {
       o._trail -= dt;
       if (o._trail <= 0) { o._trail = 0.04; sparkles.burst(o.pos, '#9a7bff', 1, 0.2, 0.42, 0.55); }
     }
+    // turret shells: ghostly orbs lobbed across the field
+    for (const sh of game.shells) {
+      live.add(sh.id);
+      let mesh = this.orbMeshes.get(sh.id);
+      if (!mesh) { mesh = new THREE.Mesh(this.orbGeo, this.orbMat); mesh.scale.setScalar(1.25); this.scene.add(mesh); this.orbMeshes.set(sh.id, mesh); sh._trail = 0; }
+      mesh.position.set(sh.pos.x, sh.pos.y, sh.pos.z);
+      glow.add(sh.pos.x, sh.pos.y, sh.pos.z, 1.5, sh.owner === 'you' ? '#8c6bff' : '#c76bff', 0.95);
+      glow.add(sh.pos.x, sh.pos.y, sh.pos.z, 0.55, '#ffffff', 0.6);
+      sh._trail -= dt;
+      if (sh._trail <= 0) { sh._trail = 0.035; sparkles.burst(sh.pos, '#9a7bff', 1, 0.15, 0.45, 0.6); }
+    }
     for (const [id, mesh] of this.orbMeshes) if (!live.has(id)) { this.scene.remove(mesh); this.orbMeshes.delete(id); }
   }
 

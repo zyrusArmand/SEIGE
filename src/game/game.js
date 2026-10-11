@@ -35,14 +35,16 @@ export function completion(castle) {
 
 let nextId = 1;
 
-function makeCastle(side, z0, turretCell) {
+function makeCastle(side, z0) {
   const cells = [];
   for (let r = 0; r < G.rows; r++) cells.push(new Array(G.cols).fill(null));
-  return {
-    side, z0, cz: z0 + G.cell, cells,
-    turret: { c: turretCell[0], r: turretCell[1], cd: rnd(1, 2), active: true, bob: Math.random() * 6,
-      pos: { x: 0, y: 2, z: 0 }, opacity: 1, yaw: 0, fire: 0 },
-  };
+  return { side, z0, cz: z0 + G.cell, cells, target: null };   // target: rival square our turrets bombard
+}
+
+export function turretCount(castle) {
+  let n = 0;
+  for (const row of castle.cells) for (const b of row) if (b && b.type === 'turret') n++;
+  return n;
 }
 
 function makeBat(side) {
@@ -55,14 +57,14 @@ function makeBat(side) {
 
 export class Game {
   constructor() {
-    this.you = makeCastle('you', CONFIG.castles.youZ0, CONFIG.ghost.youCell);
-    this.rival = makeCastle('rival', CONFIG.castles.rivalZ0, CONFIG.ghost.rivalCell);
+    this.you = makeCastle('you', CONFIG.castles.youZ0);
+    this.rival = makeCastle('rival', CONFIG.castles.rivalZ0);
     this.player = makeBat('you');
     this.foe = makeBat('rival');
-    this.moths = []; this.falling = []; this.orbs = []; this.infests = [];
+    this.moths = []; this.falling = []; this.orbs = []; this.shells = []; this.infests = [];
     this.events = [];
     this.state = 'menu';
-    this.input = { target: null, keys: { x: 0, z: 0 }, keyMode: false };
+    this.input = { move: { x: 0, z: 0 } };   // joystick / keys, length 0..1
     this.reset();
   }
 
@@ -78,14 +80,15 @@ export class Game {
     Object.assign(this.player.pos, { x: -1.5, z: 3.6 }); Object.assign(this.player.target, { x: -1.5, z: 3.6 });
     Object.assign(this.foe.pos, { x: 1.5, z: -3.6 }); Object.assign(this.foe.target, { x: 1.5, z: -3.6 });
     this.player.yaw = Math.PI; this.foe.yaw = 0;
-    this.moths.length = 0; this.falling.length = 0; this.orbs.length = 0; this.infests.length = 0;
+    this.moths.length = 0; this.falling.length = 0; this.orbs.length = 0; this.shells.length = 0; this.infests.length = 0;
+    this.you.target = null; this.rival.target = null;
     for (let i = 0; i < CONFIG.moths.startCount; i++) this.spawnMoth(true);
     this.timeLeft = CONFIG.match.seconds; this.blood = false; this.bloodT = 0;
     this.spawnT = 0; this.elapsed = 0;
     this.stats = { moths: 0, broken: 0, perfect: 0, built: 0 };
     this.ai = { mode: 'gather', think: 0, buildT: 0, targetCell: null };
     this.outcome = null;
-    this.input.target = null; this.input.keyMode = false;
+    this.input.move.x = this.input.move.z = 0;
     this.emit('reset');
   }
 
@@ -102,11 +105,21 @@ export class Game {
   // ------------------------------------------------------------------ building
   canPlace(castle, c, r, type) {
     const b = castle.cells[r][c];
+    if (type === 'turret') return !b && turretCount(castle) < CONFIG.ghost.maxTurrets;
     return !b || (b.type === type && b.level < G.maxLevel);
   }
 
   placeBlock(castle, c, r, type, silent = false) {
     const cur = castle.cells[r][c];
+    if (type === 'turret') {
+      if (cur) return false;
+      castle.cells[r][c] = {
+        id: nextId++, type, level: G.maxLevel, hp: G.maxLevel * CONFIG.blocks.turret.hp, pop: silent ? 0 : 0.35, shake: 0,
+        arch: false, healFx: 0, cd: rnd(1, 2), yaw: castle.side === 'you' ? Math.PI : 0, fire: 0,
+      };
+      if (!silent) this.emit('place', { side: castle.side, c, r, blockType: type, level: G.maxLevel });
+      return true;
+    }
     if (cur) {
       if (cur.type !== type || cur.level >= G.maxLevel) return false;
       cur.level++; cur.hp += CONFIG.blocks[type].hp; cur.pop = 0.35;
@@ -124,6 +137,11 @@ export class Game {
   tryBuild(c, r, type) {
     const p = this.player, b = this.you.cells[r][c];
     if (!p.home) return 'Fly home to place blocks';
+    if (type === 'turret') {
+      if (b) return 'Turrets go on an empty square';
+      if (turretCount(this.you) >= CONFIG.ghost.maxTurrets) return `Max ${CONFIG.ghost.maxTurrets} turrets`;
+    }
+    if (b && b.type === 'turret') return 'That square has a turret';
     if (b && b.type !== type) return `Stack ${b.type} on ${b.type}`;
     if (b && b.level >= G.maxLevel) return 'That square is maxed out';
     if (p.moths < COST[type]) return `Need ${COST[type]} moths`;
@@ -142,6 +160,15 @@ export class Game {
     if (p.moths < COST[type]) return `Need ${COST[type]} moths`;
     p.moths -= COST[type]; p.carrying = type;
     this.emit('load', { side: 'you', cargo: type });
+    return null;
+  }
+
+  /** Player taps a rival square: every turret we own bombards it. Returns an error string or null. */
+  setTarget(c, r) {
+    if (turretCount(this.you) === 0) return 'Build a turret to bombard their castle';
+    if (!this.rival.cells[r][c]) return 'Pick a rival block to aim at';
+    this.you.target = { c, r };
+    this.emit('target', { side: 'you', c, r });
     return null;
   }
 
@@ -187,7 +214,7 @@ export class Game {
     const b = castle.cells[r][c]; if (!b) return false;
     const hpPer = CONFIG.blocks[b.type].hp;
     b.hp -= amt; b.shake = Math.max(b.shake, amt > 5 ? 0.35 : 0.12);
-    while (b.level > 1 && b.hp <= (b.level - 1) * hpPer) {
+    while (b.type !== 'turret' && b.level > 1 && b.hp <= (b.level - 1) * hpPer) {
       b.level--;
       this.emit('levelBreak', { side: castle.side, c, r, blockType: b.type, level: b.level });
     }
@@ -255,9 +282,9 @@ export class Game {
       const k = 1 - Math.min(1, 2.5 * dt); bat.vel.x *= k; bat.vel.z *= k;
     } else {
       let tx, tz, a;
-      if (isPlayer && this.input.keyMode) {
-        const kx = this.input.keys.x, kz = this.input.keys.z, l = hyp(kx, kz);
-        tx = l ? kx / l * maxSpd : 0; tz = l ? kz / l * maxSpd : 0; a = B.keyAccel;
+      if (isPlayer && this.state !== 'menu') {
+        const m = this.input.move, l = hyp(m.x, m.z), s = l > 1 ? 1 / l : 1;
+        tx = m.x * s * maxSpd; tz = m.z * s * maxSpd; a = B.keyAccel;
       } else {
         const dx = bat.target.x - bat.pos.x, dz = bat.target.z - bat.pos.z, d = hyp(dx, dz);
         if (d > 0.05) { const s = maxSpd * Math.min(1, d / B.slowRadius) / d; tx = dx * s; tz = dz * s; } else { tx = 0; tz = 0; }
@@ -304,7 +331,7 @@ export class Game {
         const list = [];
         for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
           const b = this.you.cells[r][c];
-          if (b) list.push({ c, r, score: b.level * 2 + (this.you.turret.c === c && this.you.turret.r === r ? 3 : 0) + Math.random() * 2 });
+          if (b) list.push({ c, r, score: b.level * 2 + (b.type === 'turret' ? 3 : 0) + Math.random() * 2 });
         }
         list.sort((a, b) => b.score - a.score);
         AI.targetCell = list[0] || { c: 2, r: 1 };
@@ -319,6 +346,14 @@ export class Game {
     const myC = completion(this.rival), yourC = completion(this.you);
     if (AI.think <= 0) {
       AI.think = rnd(C.thinkMin, C.thinkMax);
+      if (turretCount(this.rival) && !this.rival.target) {
+        let best = null, bs = -1;
+        for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
+          const b = this.you.cells[r][c];
+          if (b) { const sc = b.level + (b.type === 'turret' ? 3 : 0) + Math.random(); if (sc > bs) { bs = sc; best = { c, r }; } }
+        }
+        this.rival.target = best;
+      }
       if (AI.mode === 'gather') {
         if (foe.moths >= C.buildAt && Math.random() < 0.5) AI.mode = (myC < yourC + 0.04 || Math.random() < 0.45) ? 'build' : 'raid';
         else if (foe.moths >= C.raidAt && myC > yourC + C.raidLead && Math.random() < 0.4) AI.mode = 'raid';
@@ -339,10 +374,15 @@ export class Game {
       else AI.mode = 'gather';
       return;
     }
+    if (foe.moths >= COST.turret && turretCount(this.rival) < 1 && Math.random() < C.turretChance) {
+      for (const r of [0, 1, 2]) for (const c of [2, 3, 1, 4, 0, 5]) {
+        if (!this.rival.cells[r][c]) { foe.moths -= COST.turret; this.placeBlock(this.rival, c, r, 'turret'); return; }
+      }
+    }
     const opts = [];
     for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
       const b = this.rival.cells[r][c];
-      if (!b || b.level < G.maxLevel) opts.push({ c, r, b, k: (b ? 1 : 0) + Math.random() - 0.5 });
+      if (!b || (b.type !== 'turret' && b.level < G.maxLevel)) opts.push({ c, r, b, k: (b ? 1 : 0) + Math.random() - 0.5 });
     }
     if (!opts.length || foe.moths < 1) { AI.mode = 'gather'; return; }
     opts.sort((a, b) => a.k - b.k);
@@ -373,8 +413,6 @@ export class Game {
     }
     if (this.blood) this.bloodT = Math.min(1, this.bloodT + dt / CONFIG.match.bloodMoonFade);
 
-    // player steering input
-    if (this.input.target && !this.input.keyMode) { this.player.target.x = this.input.target.x; this.player.target.z = this.input.target.z; }
     if (this.state === 'menu') {
       const e = this.elapsed;
       Object.assign(this.foe.target, { x: Math.sin(e * 0.4) * 3, z: -2 + Math.cos(e * 0.5) * 1.5 });
@@ -419,7 +457,7 @@ export class Game {
           }
         }
       }
-      this.updateTurret(castle, dt, playing);
+      this.updateTurrets(castle, dt, playing);
     }
 
     // ghost orbs
@@ -443,6 +481,8 @@ export class Game {
       }
       if (o.life <= 0) { this.emit('orbGone', { orb: o, hit: false }); this.orbs.splice(i, 1); }
     }
+
+    this.updateShells(dt, playing);
 
     // falling cargo
     const A = CONFIG.attacks;
@@ -478,28 +518,76 @@ export class Game {
     }
   }
 
-  updateTurret(castle, dt, playing) {
-    const tu = castle.turret, GH = CONFIG.ghost;
-    tu.bob += dt; tu.fire = Math.max(0, tu.fire - dt);
-    const tb = castle.cells[tu.r][tu.c];
-    const gp = cellPos(castle, tu.c, tu.r);
-    const was = tu.active; tu.active = !!tb;
-    if (was && !tu.active) this.emit('ghostFade', { side: castle.side });
-    const ty = (tb ? tb.level * G.levelHeight : 0) + G.floor + 1.0 + Math.sin(tu.bob * 2) * 0.12;
-    const k = Math.min(1, dt * 6);
-    tu.pos.x += (gp.x - tu.pos.x) * k; tu.pos.y += (ty - tu.pos.y) * k; tu.pos.z += (gp.z - tu.pos.z) * k;
-    tu.opacity += ((tu.active ? 1 : 0.2) - tu.opacity) * Math.min(1, dt * 4);
+  turretTop(castle, c, r) {
+    const p = cellPos(castle, c, r);
+    return { x: p.x, y: G.floor + G.levelHeight + 0.45, z: p.z };
+  }
+
+  updateTurrets(castle, dt, playing) {
+    const GH = CONFIG.ghost;
+    const enemyCastle = castle === this.you ? this.rival : this.you;
     const enemy = castle === this.you ? this.foe : this.player;
-    tu.yaw = Math.atan2(enemy.pos.x - tu.pos.x, enemy.pos.z - tu.pos.z);
-    if (!playing || !tu.active) return;
-    tu.cd -= dt;
-    const d = Math.hypot(enemy.pos.x - tu.pos.x, enemy.pos.y - tu.pos.y, enemy.pos.z - tu.pos.z);
-    if (tu.cd <= 0 && d < GH.range && enemy.stun <= 0) {
-      tu.cd = rnd(GH.cooldownMin, GH.cooldownMax); tu.fire = 0.4;
-      const dx = enemy.pos.x - tu.pos.x, dy = enemy.pos.y - tu.pos.y, dz = enemy.pos.z - tu.pos.z;
-      const o = { id: nextId++, owner: castle.side, pos: { ...tu.pos }, vel: { x: dx / d * GH.orbSpeed, y: dy / d * GH.orbSpeed, z: dz / d * GH.orbSpeed }, target: enemy, life: GH.orbLife };
-      this.orbs.push(o);
-      this.emit('orbFire', { side: castle.side, orb: o });
+    if (castle.target && !enemyCastle.cells[castle.target.r][castle.target.c]) {
+      castle.target = null;
+      this.emit('targetLost', { side: castle.side });
+    }
+    for (let r = 0; r < G.rows; r++) for (let c = 0; c < G.cols; c++) {
+      const b = castle.cells[r][c];
+      if (!b || b.type !== 'turret') continue;
+      b.fire = Math.max(0, b.fire - dt);
+      const top = this.turretTop(castle, c, r);
+      // guard first: zap the enemy bat if it comes close, otherwise bombard the chosen square
+      const d = Math.hypot(enemy.pos.x - top.x, enemy.pos.y - top.y, enemy.pos.z - top.z);
+      let aim = null, mode = null;
+      if (d < GH.range && enemy.stun <= 0) { aim = enemy.pos; mode = 'guard'; }
+      else if (castle.target) { aim = cellPos(enemyCastle, castle.target.c, castle.target.r); mode = 'shell'; }
+      if (aim) {
+        const want = Math.atan2(aim.x - top.x, aim.z - top.z);
+        let dy = want - b.yaw;
+        while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+        b.yaw += Math.sign(dy) * Math.min(Math.abs(dy), GH.turnSpeed * dt);
+        b.aimed = Math.abs(dy) < 0.25;
+      } else b.aimed = false;
+      if (!playing) continue;
+      b.cd -= dt;
+      if (b.cd > 0 || !aim || !b.aimed) continue;
+      b.fire = 0.4;
+      if (mode === 'guard') {
+        b.cd = rnd(GH.cooldownMin, GH.cooldownMax);
+        const dx = enemy.pos.x - top.x, dy = enemy.pos.y - top.y, dz = enemy.pos.z - top.z;
+        const o = { id: nextId++, owner: castle.side, pos: { ...top }, vel: { x: dx / d * GH.orbSpeed, y: dy / d * GH.orbSpeed, z: dz / d * GH.orbSpeed }, target: enemy, life: GH.orbLife };
+        this.orbs.push(o);
+        this.emit('orbFire', { side: castle.side, orb: o });
+      } else {
+        b.cd = GH.shellEvery * rnd(0.9, 1.1);
+        const t = castle.target;
+        const to = cellPos(enemyCastle, t.c, t.r); to.y = blockTop(enemyCastle, t.c, t.r);
+        const dist = Math.hypot(to.x - top.x, to.z - top.z);
+        const sh = { id: nextId++, owner: castle.side, from: { ...top }, to, cell: { c: t.c, r: t.r }, target: enemyCastle,
+          t: 0, dur: dist / GH.shellSpeed + 0.4, arc: 1.5 + dist * 0.18, pos: { ...top } };
+        this.shells.push(sh);
+        this.emit('shellFire', { side: castle.side, shell: sh });
+      }
+    }
+  }
+
+  updateShells(dt, playing) {
+    for (let i = this.shells.length - 1; i >= 0; i--) {
+      const s = this.shells[i]; s.t += dt;
+      const u = Math.min(1, s.t / s.dur);
+      s.pos.x = s.from.x + (s.to.x - s.from.x) * u;
+      s.pos.z = s.from.z + (s.to.z - s.from.z) * u;
+      s.pos.y = s.from.y + (s.to.y - s.from.y) * u + s.arc * 4 * u * (1 - u);
+      if (u < 1) continue;
+      this.shells.splice(i, 1);
+      this.emit('shellGone', { shell: s });
+      if (!playing) continue;
+      const b = s.target.cells[s.cell.r][s.cell.c];
+      const byP = s.owner === 'you';
+      if (!b) { this.emit('miss', { pos: { ...s.pos }, cargo: 'shell', byPlayer: byP, own: false }); continue; }
+      const dmg = Math.round(CONFIG.ghost.shellDamage * (this.blood ? CONFIG.match.bloodMoonMult : 1));
+      this.emit('shellHit', { pos: { ...s.pos }, dmg, byPlayer: byP, side: s.target.side, c: s.cell.c, r: s.cell.r });
+      this.damageBlock(s.target, s.cell.c, s.cell.r, dmg, byP);
     }
   }
 

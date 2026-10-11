@@ -1,6 +1,6 @@
 // Headless balance check: plays N matches with a simple player bot vs the AI.
 // Run: node tools/simulate.mjs [matches]
-import { Game, completion, cellPos } from '../src/game/game.js';
+import { Game, completion, cellPos, turretCount } from '../src/game/game.js';
 
 const N = +(process.argv[2] || 20);
 const tally = { win: 0, lose: 0, draw: 0 };
@@ -27,11 +27,16 @@ for (let m = 0; m < N; m++) {
         buildT -= 1 / 30;
         if (p.home && buildT <= 0) {
           buildT = 0.4;
+          if (!g.you.target && turretCount(g.you)) {
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 6; c++) if (g.rival.cells[r][c] && !g.you.target) g.setTarget(c, r);
+          }
           if (mode === 'raid') { g.tryLoad('rock'); mode = 'gather'; }
           else {
             let done = false;
             for (let r = 0; r < 3 && !done; r++) for (let c = 0; c < 6 && !done; c++) {
               const b = g.you.cells[r][c];
+              if (!b && p.moths >= 4 && turretCount(g.you) < 1 && g.tryBuild(c, r, 'turret') === null) { done = true; break; }
+              if (b && b.type === 'turret') continue;
               const type = b ? b.type : (p.moths >= 3 ? 'stone' : 'wood');
               if (!g.tryBuild(c, r, type)) done = true;
             }
@@ -39,6 +44,12 @@ for (let m = 0; m < N; m++) {
           }
         }
       }
+    }
+    // steer like a thumb on the joystick: push toward the target, ease off when close
+    if (g.input.target) {
+      const dx = g.input.target.x - p.pos.x, dz = g.input.target.z - p.pos.z, d = Math.hypot(dx, dz);
+      const k = d > 0.05 ? Math.min(1, d / 1.6) / d : 0;
+      g.input.move.x = dx * k; g.input.move.z = dz * k;
     }
     g.update(1 / 30); t += 1 / 30;
     for (const e of g.events) ev[e.type] = (ev[e.type] || 0) + 1;

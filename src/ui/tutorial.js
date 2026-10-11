@@ -2,9 +2,10 @@
 // Shown until the player finishes all steps once (remembered in localStorage).
 import * as THREE from 'three';
 import { COST } from '../game/config.js';
+import { turretCount } from '../game/game.js';
 
 const KEY = 'batSiegeTutorialDone';
-const STEPS = ['eat', 'goHome', 'build', 'raid', 'done'];
+const STEPS = ['eat', 'goHome', 'build', 'turret', 'raid', 'done'];
 
 export class Tutorial {
   constructor({ game, camera, toast, tools }) {
@@ -44,7 +45,7 @@ export class Tutorial {
     const name = STEPS[this.step];
     let pulse = [];
     if (name === 'eat') {
-      if (this.t > 0.6) this.say('Fly through the glowing moths to eat them');
+      if (this.t > 0.6) this.say('Hold and drag your thumb to fly. Eat the glowing moths');
       let best = null, bd = 1e9;
       for (const m of g.moths) { const d = (m.pos.x - p.pos.x) ** 2 + (m.pos.z - p.pos.z) ** 2; if (d < bd) { bd = d; best = m; } }
       if (best) this.highlight = best.pos;
@@ -58,6 +59,13 @@ export class Tutorial {
         pulse = ['wood', 'stone', 'bone'];
       }
       if (this.built >= 2) this.next();
+    } else if (name === 'turret') {
+      if (p.home && p.moths >= COST.turret) {
+        this.say('Buy a turret, then tap a rival block to aim it');
+        pulse = ['turret'];
+      }
+      if (g.you.target || this.t > 30) this.next();
+      else if (turretCount(g.you) && this.shown === this.step && this.t > 1) { this.toast('Now tap a rival block to aim your turret', true, 2.5); this.shown = -2; }
     } else if (name === 'raid') {
       if (p.home && p.moths >= COST.rock && !p.carrying) {
         this.say('Load a rock, then drop it on the rival castle');

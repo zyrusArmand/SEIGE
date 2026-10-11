@@ -6,8 +6,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const MODEL_NAMES = [
-  'block_stone_body', 'block_stone_body_arch', 'block_stone_cap', 'block_wood_body', 'block_wood_cap',
-  'block_bone_body', 'block_bone_cap', 'castle_frame', 'bat_player', 'bat_rival', 'ghost', 'moth', 'rock',
+  ...['stone', 'wood', 'bone'].flatMap((t) => ['body', 'gate', 'cap_keep', 'cap_wall', 'cap_corner'].map((p) => `block_${t}_${p}`)),
+  'turret_base', 'turret_head', 'castle_frame', 'bat_player', 'bat_rival', 'ghost', 'moth', 'rock',
   'rock_scatter', 'termite', 'termite_clump', 'tree_pine_a', 'tree_pine_b', 'bush', 'grass_tuft', 'pond',
 ];
 

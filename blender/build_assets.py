@@ -335,199 +335,202 @@ def quad_pts(p0, c, p1, n=5):
     return pts
 
 
-# ---------------------------------------------------------------- blocks
+# ---------------------------------------------------------------- castle kit
+# Every block shares one castle style (brick walls + battlements) in three materials.
+# The game picks the piece by where the block sits: corner -> tower cap, edge -> wall cap,
+# inside -> keep cap, front-middle squares -> gate body. Wall caps face -Y (= +Z in game);
+# the game rotates them to face outward.
+
+BONE_MORTAR = mat("bone_mortar", "#6e6250", rough=1.0)
+SLATE = [mat("slate_a", "#5d6573"), mat("slate_b", "#4f5664"), mat("slate_c", "#687183")]
+RUNE = mat("rune", "#b9a2ff", emit="#8a63ff", emit_strength=4.0)
+
+KITS = {
+    "stone": dict(bricks=STONE, mortar=MORTAR, slab=SLAB, trim=STONE, bh=0.16, bl=0.34, bevel=0.012),
+    "wood": dict(bricks=WOODS, mortar=WOOD_DARK, slab=WOOD_DARK, trim=[WOOD_DARK], bh=0.123, bl=0.5, bevel=0.01),
+    "bone": dict(bricks=BONES, mortar=BONE_MORTAR, slab=BONES[2], trim=BONES, bh=0.185, bl=0.42, bevel=0.028),
+}
 
 
-def block_stone_body(arch=False):
+def kit_body(kind, gate=False):
+    K = KITS[kind]
     B = Builder()
     h = LH - 0.06
-    skip = (lambda f, m, z: f == "front" and abs(m) < 0.3 and z < 0.66) if arch else None
-    brick_shell(B, BW, BW, h, 0.0, STONE, MORTAR, skip=skip)
-    B.box((BW + 0.03, BW + 0.03, 0.06), (0, 0, LH - 0.03), SLAB, 0.015)
+    skip = (lambda f, m, z: f == "front" and abs(m) < 0.3 and z < 0.66) if gate else None
+    brick_shell(B, BW, BW, h, 0.0, K["bricks"], K["mortar"], bh=K["bh"], bl=K["bl"], bevel=K["bevel"], skip=skip)
+    if kind == "wood":   # dark corner posts frame the plank courses
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                B.box((0.1, 0.1, h + 0.02), (sx * (BW / 2 - 0.03), sy * (BW / 2 - 0.03), (h + 0.02) / 2), WOOD_DARK, 0.015)
+    B.box((BW + 0.03, BW + 0.03, 0.06), (0, 0, LH - 0.03), K["slab"], 0.015)
     sockets = []
-    if arch:
+    if gate:
         y = -BW / 2 + 0.012
         B.box((0.42, 0.03, 0.42), (0, y, 0.21), SOCKET)
         B.cone(0.21, 0.21, 0.03, (0, y, 0.42), SOCKET, seg=14, rot=Matrix.Rotation(math.pi / 2, 4, "X"))
+        # portcullis: iron bars (stone), wooden door (wood), rib bones (bone)
+        bar_mat = {"stone": IRON, "wood": WOOD_DARK, "bone": BONE_WHITE}[kind]
+        for k in range(5):
+            x = -0.16 + k * 0.08
+            top = 0.42 + math.sqrt(max(0.0, 0.2 ** 2 - x * x))
+            if kind == "wood":
+                B.box((0.075, 0.02, top - 0.02), (x, y - 0.012, (top - 0.02) / 2), random.choice(WOODS), 0.006)
+            else:
+                B.box((0.022, 0.022, top - 0.02), (x, y - 0.015, (top - 0.02) / 2), bar_mat, 0.004)
+        if kind != "wood":
+            for z in (0.16, 0.34):
+                B.box((0.36, 0.022, 0.022), (0, y - 0.02, z), bar_mat, 0.004)
+        else:
+            B.box((0.36, 0.024, 0.04), (0, y - 0.025, 0.22), IRON, 0.005)
+        trim = K["trim"]
         for k in range(7):
             a = math.pi * k / 6
-            B.box((0.12, 0.07, 0.1), (math.cos(a) * 0.27, y - 0.02, 0.42 + math.sin(a) * 0.27),
-                  random.choice(STONE), 0.012, rot=Matrix.Rotation(a + math.pi / 2, 4, "Y"))
+            B.box((0.12, 0.07, 0.1), (math.cos(a) * 0.27, y - 0.02, 0.42 + math.sin(a) * 0.27), random.choice(trim), 0.012,
+                  rot=Matrix.Rotation(a + math.pi / 2, 4, "Y"))
         for sx in (-1, 1):
             for k in range(3):
-                B.box((0.1, 0.07, 0.12), (sx * 0.27, y - 0.02, 0.07 + k * 0.13), random.choice(STONE), 0.012)
+                B.box((0.1, 0.07, 0.12), (sx * 0.27, y - 0.02, 0.07 + k * 0.13), random.choice(trim), 0.012)
+        if kind == "bone":   # skull keystone
+            B.sphere(0.075, (0, y - 0.07, 0.7), BONE_WHITE, seg=10, rings=7, scale=(1, 0.7, 0.95))
+            for sx in (-1, 1):
+                B.sphere(0.02, (sx * 0.028, y - 0.12, 0.71), SOCKET, seg=6, rings=5)
         for sx in (-1, 1):
             sockets.append(add_torch(B, sx * 0.47, -BW / 2 - 0.02, 0.4))
-    o = B.obj("StoneBody" + ("Arch" if arch else ""))
+    o = B.obj("%sBody%s" % (kind.title(), "Gate" if gate else ""))
     for i, p in enumerate(sockets):
         empty("TorchSocket_%d" % i, p, o)
     return False
 
 
-def block_stone_cap():
+def kit_merlon(B, kind, x, y, z, face, s=0.27, h=0.27):
+    """One battlement tooth. `face` = outward direction (unit vector in XY)."""
+    face = Vector((face[0], face[1], 0)).normalized()
+    if kind == "stone":
+        merlon(B, x, y, z, size=s, height=h)
+    elif kind == "wood":   # pointed palisade stake
+        B.box((s * 0.85, s * 0.85, h * 0.7), (x, y, z + h * 0.35), random.choice(WOODS), 0.012)
+        B.cone(s * 0.6, 0.0, h * 0.5, (x, y, z + h * 0.7 + h * 0.25), random.choice(WOODS), seg=4,
+               rot=Matrix.Rotation(math.pi / 4, 4, "Z"))
+        B.box((s * 0.9, s * 0.9, 0.035), (x, y, z + h * 0.32), IRON, 0.006)
+    else:   # tiny skull looking outward
+        c = Vector((x, y, z + h * 0.58))
+        B.sphere(s * 0.52, c, BONE_WHITE, seg=10, rings=7, scale=(1, 1, 0.92))
+        B.box((s * 0.55, s * 0.55, h * 0.3), (x, y, z + h * 0.16), BONES[1], 0.02)
+        side = Vector((-face.y, face.x, 0))
+        for k in (-1, 1):
+            p = c + face * s * 0.44 + side * k * s * 0.2 + Vector((0, 0, s * 0.04))
+            B.sphere(s * 0.13, p, SOCKET, seg=6, rings=5)
+
+
+def kit_ring(B, kind, z, n_per_side=3, inset=0.47, s=0.27, h=0.27):
+    pts = []
+    for i in range(n_per_side):
+        t = -inset + i * (2 * inset / (n_per_side - 1))
+        pts += [(t, -inset, (0, -1)), (t, inset, (0, 1))]
+        if 0 < i < n_per_side - 1:
+            pts += [(-inset, t, (-1, 0)), (inset, t, (1, 0))]
+    for x, y, f in pts:
+        kit_merlon(B, kind, x, y, z, f, s, h)
+
+
+def kit_cap(kind, shape):
+    K = KITS[kind]
     B = Builder()
-    B.box((BW - 0.1, BW - 0.1, 0.04), (0, 0, 0.02), FLOOR_MATS[1])
-    for x, y in [(-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)]:
-        merlon(B, x * 0.48, y * 0.48, 0.0)
-    B.obj("StoneCap")
+    B.box((BW - 0.08, BW - 0.08, 0.05), (0, 0, 0.025), K["slab"] if kind != "stone" else FLOOR_MATS[1])
+    if shape == "keep":
+        kit_ring(B, kind, 0.0)
+    elif shape == "wall":
+        for i in range(4):   # battlements along the outward (front) edge
+            kit_merlon(B, kind, -0.48 + i * 0.32, -0.48, 0.0, (0, -1))
+        B.box((BW - 0.06, 0.1, 0.12), (0, 0.55, 0.06), random.choice(K["bricks"]), 0.015)   # low inner parapet
+    else:   # corner tower: bigger battlement ring + a roof in the middle
+        B.box((BW - 0.04, BW - 0.04, 0.12), (0, 0, 0.06), K["slab"] if kind != "stone" else SLAB, 0.02)
+        kit_ring(B, kind, 0.12, n_per_side=3, s=0.3, h=0.3)
+        if kind == "stone":
+            B.box((0.5, 0.5, 0.25), (0, 0, 0.24), random.choice(STONE), 0.02)
+            B.cone(0.42, 0.0, 0.62, (0, 0, 0.67), random.choice(SLATE), seg=4, rot=Matrix.Rotation(math.pi / 4, 4, "Z"))
+        elif kind == "wood":
+            B.box((0.5, 0.5, 0.22), (0, 0, 0.23), WOOD_DARK, 0.02)
+            B.cone(0.48, 0.0, 0.6, (0, 0, 0.64), random.choice(ROOF), seg=4, rot=Matrix.Rotation(math.pi / 4, 4, "Z"))
+        else:
+            v = B.sphere(0.32, (0, 0, 0.16), BONES[0], seg=16, rings=10)
+            bmesh.ops.delete(B.bm, geom=[q for q in v if q.co.z < 0.16 - 1e-4], context="VERTS")
+            for sx in (-1, 1):
+                B.cyl_between((sx * 0.22, 0, 0.3), (sx * 0.42, 0, 0.72), 0.06, BONES[2], seg=8, r2=0.0)
+            B.sphere(0.06, (0, 0, 0.5), BONE_WHITE, seg=8, rings=6)
+    B.obj("%sCap%s" % (kind.title(), shape.title()))
     return False
 
 
-def block_wood_body():
-    B = Builder()
-    h = LH - 0.06
-    B.box((BW - 0.1, BW - 0.1, h), (0, 0, h / 2), WOOD_DARK)
-    n = 6
-    for side, (L, ox, oy, axis) in {
-        "front": (BW - 0.16, 0, -BW / 2 + 0.04, "x"), "back": (BW - 0.16, 0, BW / 2 - 0.04, "x"),
-        "left": (BW - 0.16, -BW / 2 + 0.04, 0, "y"), "right": (BW - 0.16, BW / 2 - 0.04, 0, "y"),
-    }.items():
-        pw = L / n
-        for k in range(n):
-            c = -L / 2 + pw / 2 + k * pw
-            ph = h - random.uniform(0.0, 0.04)
-            t = 0.06 + random.uniform(-0.01, 0.012)
-            m = random.choice(WOODS)
-            if axis == "x":
-                B.box((pw - 0.014, t, ph), (ox + c, oy, ph / 2), m, 0.01)
-            else:
-                B.box((t, pw - 0.014, ph), (ox, oy + c, ph / 2), m, 0.01)
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            B.box((0.13, 0.13, h + 0.02), (sx * (BW / 2 - 0.05), sy * (BW / 2 - 0.05), (h + 0.02) / 2), WOOD_DARK, 0.018)
-    for z in (0.17, h - 0.17):
-        for side in ("front", "back", "left", "right"):
-            if side in ("front", "back"):
-                y = (-1 if side == "front" else 1) * (BW / 2 + 0.005)
-                B.box((BW - 0.1, 0.03, 0.06), (0, y, z), IRON, 0.008)
-                for k in range(5):
-                    B.box((0.035, 0.03, 0.035), (-0.48 + k * 0.24, y + (-0.015 if side == "front" else 0.015), z), IRON, 0.006)
-            else:
-                x = (-1 if side == "left" else 1) * (BW / 2 + 0.005)
-                B.box((0.03, BW - 0.1, 0.06), (x, 0, z), IRON, 0.008)
-    for k in range(5):
-        B.box((BW - 0.04, (BW - 0.04) / 5 - 0.015, 0.06), (0, -BW / 2 + 0.02 + (BW - 0.04) / 10 + k * (BW - 0.04) / 5, LH - 0.03),
-              random.choice(WOODS), 0.01)
-    B.obj("WoodBody")
-    return False
-
-
-def block_wood_cap():
-    B = Builder()
-    ph = 0.55
-    d = BW + 0.18
-    w = BW + 0.14
-    B.tri_prism(BW - 0.08, BW - 0.08, ph - 0.05, (0, 0, 0), WOODS[1])
-    for gx in (-1, 1):
-        x = gx * (BW / 2 - 0.035)
-        for k in range(4):
-            z = 0.06 + k * 0.11
-            half = (BW - 0.08) / 2 * (1 - z / (ph - 0.05))
-            if half > 0.05:
-                B.box((0.03, half * 2 - 0.02, 0.09), (x + gx * 0.012, 0, z), random.choice(WOODS), 0.008)
-    slope = math.atan2(ph, d / 2)
-    L = math.hypot(ph, d / 2)
-    rows, cols = 5, 6
-    for side in (-1, 1):
-        rot = Matrix.Rotation(-side * slope, 4, "X")
-        nrm = Vector((0, side * math.sin(slope), math.cos(slope)))
-        for r in range(rows):
-            t = (r + 0.5) / rows
-            y = side * (d / 2) * (1 - t)
-            z = ph * t
-            off = (w / cols / 2) if r % 2 else 0.0
-            for c in range(cols + 1):
-                x = -w / 2 + c * (w / cols) - off + w / cols / 2
-                a, b = max(x - w / cols / 2, -w / 2), min(x + w / cols / 2, w / 2)
-                if b - a < 0.05:
-                    continue
-                p = Vector(((a + b) / 2, y, z)) + nrm * (0.03 + 0.012 * (rows - r))
-                B.box((b - a - 0.015, L / rows * 1.25, 0.045), p, random.choice(ROOF), 0.01, rot=rot)
-    B.box((w + 0.06, 0.13, 0.09), (0, 0, ph + 0.06), ROOF[2], 0.02)
-    B.obj("WoodCap")
-    return False
-
-
-def block_bone_body():
+def turret_base():
+    """Squat stone base with iron bands and glowing ghost runes (one block level)."""
     B = Builder()
     h = LH - 0.06
-    brick_shell(B, BW, BW, h, 0.0, BONES, MORTAR, bh=0.185, bl=0.42, bevel=0.03, depth=0.04)
-    B.box((BW + 0.03, BW + 0.03, 0.06), (0, 0, LH - 0.03), BONES[2], 0.02)
-    fy = -BW / 2 - 0.02
-    for ang in (0.62, -0.62):
-        rot = Matrix.Rotation(math.pi / 2 + ang, 4, "Y")
-        B.cone(0.03, 0.03, 0.5, (0, fy - 0.01, 0.36), BONE_WHITE, seg=8, rot=rot, smooth=True)
-        dx, dz = math.cos(ang) * 0.25, -math.sin(ang) * 0.25
-        for s in (-1, 1):
-            for k in (-0.03, 0.03):
-                B.sphere(0.04, (s * dx + k * math.sin(ang), fy - 0.01, 0.36 + s * dz + k * math.cos(ang)), BONE_WHITE, seg=8, rings=6)
-    B.sphere(0.16, (0, fy - 0.06, 0.44), BONE_WHITE, scale=(1, 0.55, 0.92))
-    B.box((0.16, 0.08, 0.08), (0, fy - 0.07, 0.31), BONE_WHITE, 0.025)
-    for sx in (-1, 1):
-        B.sphere(0.045, (sx * 0.06, fy - 0.135, 0.45), SOCKET, seg=10, rings=7, scale=(1, 0.5, 1.15))
-    B.cone(0.025, 0.0, 0.045, (0, fy - 0.145, 0.385), SOCKET, seg=3, rot=Matrix.Rotation(math.pi, 4, "X"))
-    for k in range(3):
-        B.box((0.025, 0.02, 0.035), (-0.035 + k * 0.035, fy - 0.11, 0.305), SOCKET)
-    B.obj("BoneBody")
+    brick_shell(B, BW, BW, h, 0.0, [mat("tstone_a", "#7f7b86"), mat("tstone_b", "#6e6a76"), mat("tstone_c", "#8a8692")],
+                MORTAR, bh=0.15, bl=0.3)
+    for z in (0.12, h - 0.12):
+        for side in range(4):
+            a = side * math.pi / 2
+            d = Vector((math.sin(a), -math.cos(a), 0)) * (BW / 2 + 0.006)
+            size = (BW + 0.02, 0.025, 0.05) if side % 2 == 0 else (0.025, BW + 0.02, 0.05)
+            B.box(size, (d.x, d.y, z), IRON, 0.006)
+    for side in range(4):   # rune on each face
+        a = side * math.pi / 2
+        d = Vector((math.sin(a), -math.cos(a), 0)) * (BW / 2 + 0.012)
+        size = (0.16, 0.012, 0.16) if side % 2 == 0 else (0.012, 0.16, 0.16)
+        B.box(size, (d.x, d.y, h / 2), RUNE, 0.0, rot=Matrix.Rotation(math.pi / 4, 4, "Y" if side % 2 == 0 else "X"))
+    B.box((BW + 0.03, BW + 0.03, 0.06), (0, 0, LH - 0.03), SLAB, 0.015)
+    B.obj("TurretBase")
     return False
 
 
-def block_bone_cap():
+def turret_head():
+    """Rotating cannon the ghost sits in. Origin = pivot; front (-Y) = barrel direction."""
     B = Builder()
-    B.box((BW - 0.02, BW - 0.02, 0.08), (0, 0, 0.04), BONES[1], 0.02)
-    verts = B.sphere(0.48, (0, 0, 0.08), BONES[0], seg=20, rings=12)
-    bmesh.ops.delete(B.bm, geom=[v for v in verts if v.co.z < 0.08 - 1e-4], context="VERTS")
-    for k in range(6):
-        a = k / 6 * math.pi * 2
-        B.box((0.06, 0.06, 0.06), (math.cos(a) * 0.44, math.sin(a) * 0.44, 0.13), BONE_WHITE, 0.015)
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            base = Vector((sx * 0.52, sy * 0.52, 0.08))
-            tip = base + Vector((sx * 0.12, sy * 0.12, 0.42))
-            B.cyl_between(base, tip, 0.075, BONES[2], seg=8, r2=0.0)
-    B.sphere(0.07, (0, 0, 0.58), BONE_WHITE, seg=10, rings=7)
-    B.obj("BoneCap")
+    B.cone(0.56, 0.52, 0.12, (0, 0, 0.06), IRON, seg=20)                 # turntable
+    B.cone(0.5, 0.5, 0.04, (0, 0, 0.14), mat("brass", "#b08a4a", rough=0.45, metal=0.7), seg=20)
+    for sx in (-1, 1):                                                    # cheeks holding the barrel
+        B.box((0.09, 0.42, 0.34), (sx * 0.22, -0.05, 0.32), IRON, 0.02)
+    pitch = Matrix.Rotation(-0.35, 4, "X")                                # barrel raised for a lobbing shot
+    base = Vector((0, -0.02, 0.36))
+    tip = base + (pitch @ Vector((0, -0.85, 0, 0))).to_3d()
+    B.cyl_between(base + (pitch @ Vector((0, 0.25, 0, 0))).to_3d(), tip, 0.14, IRON, seg=14, r2=0.11)
+    for t in (0.35, 0.7):
+        p = base.lerp(tip, t)
+        B.cyl_between(p - (tip - base).normalized() * 0.03, p + (tip - base).normalized() * 0.03, 0.155, RUNE, seg=14)
+    B.cyl_between(tip - (tip - base).normalized() * 0.06, tip, 0.15, mat("brass2", "#c79a52", rough=0.4, metal=0.7), seg=14)
+    B.box((0.36, 0.28, 0.12), (0, 0.28, 0.2), WOOD_DARK, 0.02)            # ghost's seat
+    B.box((0.36, 0.06, 0.28), (0, 0.42, 0.3), WOOD_DARK, 0.02)
+    o = B.obj("TurretHead")
+    empty("GhostSeat", (0, 0.28, 0.27), o)
+    empty("Muzzle", tip, o)
     return False
-
-
-# ---------------------------------------------------------------- castle frame
 
 
 def castle_frame():
+    """Flat stone platform: one smooth tile per grid square, a low curb around the edge."""
     B = Builder()
     GW, GD = 6 * CELL, 3 * CELL
-    t = 0.34
-    B.box((GW + 2 * t + 0.6, GD + 2 * t + 0.6, 0.16), (0, 0, 0.08), MORTAR, 0.03)
+    pad = 0.3
+    B.box((GW + 2 * pad, GD + 2 * pad, 0.16), (0, 0, 0.08), MORTAR, 0.03)
     for c in range(6):
         for r in range(3):
             cx, cy = -GW / 2 + CELL / 2 + c * CELL, -GD / 2 + CELL / 2 + r * CELL
-            for i in (-1, 1):
-                for j in (-1, 1):
-                    hh = 0.08 + random.uniform(0.0, 0.012)
-                    B.box((CELL / 2 - 0.05, CELL / 2 - 0.05, hh), (cx + i * CELL / 4, cy + j * CELL / 4, 0.16 + hh / 2),
-                          random.choice(FLOOR_MATS), 0.014)
-    wh = 0.5
-    inner_x, inner_y = GW / 2 + 0.06, GD / 2 + 0.06
+            B.box((CELL - 0.06, CELL - 0.06, 0.08), (cx, cy, 0.2), random.choice(FLOOR_MATS), 0.02)
+    # curb stones around the edge, slightly above the tiles
     for sy in (-1, 1):
-        brick_shell(B, GW + 0.12, t, wh, 0.16, STONE, MORTAR, cx=0, cy=sy * (inner_y + t / 2), bh=0.17)
-        B.box((GW + 0.16, t + 0.06, 0.07), (0, sy * (inner_y + t / 2), 0.16 + wh + 0.035), SLAB, 0.015)
+        x = -GW / 2 - pad
+        while x < GW / 2 + pad - 0.05:
+            L = min(random.uniform(0.45, 0.75), GW / 2 + pad - x)
+            B.box((L - 0.03, pad - 0.04, 0.16), (x + L / 2, sy * (GD / 2 + pad / 2), 0.2), random.choice(STONE), 0.02)
+            x += L
     for sx in (-1, 1):
-        brick_shell(B, t, GD + 0.12, wh, 0.16, STONE, MORTAR, cx=sx * (inner_x + t / 2), cy=0, bh=0.17)
-        B.box((t + 0.06, GD + 0.16, 0.07), (sx * (inner_x + t / 2), 0, 0.16 + wh + 0.035), SLAB, 0.015)
-    sockets = []
-    ts, th = 0.95, 1.45
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            cx, cy = sx * (inner_x + t / 2), sy * (inner_y + t / 2)
-            brick_shell(B, ts, ts, th, 0.16, STONE, MORTAR, cx=cx, cy=cy, bh=0.18, bl=0.3)
-            B.box((ts + 0.08, ts + 0.08, 0.07), (cx, cy, 0.16 + th + 0.035), SLAB, 0.015)
-            for mx, my in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
-                merlon(B, cx + mx * 0.34, cy + my * 0.34, 0.16 + th + 0.07, size=0.26, height=0.26)
-            B.box((0.08, 0.03, 0.26), (cx, cy - ts / 2 - 0.004, 0.16 + th * 0.62), SOCKET)
-            sockets.append(add_torch(B, cx, cy - ts / 2 - 0.02, 0.16 + 0.55))
+        y = -GD / 2
+        while y < GD / 2 - 0.05:
+            L = min(random.uniform(0.45, 0.75), GD / 2 - y)
+            B.box((pad - 0.04, L - 0.03, 0.16), (sx * (GW / 2 + pad / 2), y + L / 2, 0.2), random.choice(STONE), 0.02)
+            y += L
     o = B.obj("CastleFrame")
-    for i, p in enumerate(sockets):
-        empty("TorchSocket_%d" % i, p, o)
     empty("GridOrigin", (0, 0, FLOOR), o)
     return False
 
@@ -1142,13 +1145,23 @@ def preview(name):
 
 
 ASSETS = {
-    "block_stone_body": lambda: block_stone_body(False),
-    "block_stone_body_arch": lambda: block_stone_body(True),
-    "block_stone_cap": block_stone_cap,
-    "block_wood_body": block_wood_body,
-    "block_wood_cap": block_wood_cap,
-    "block_bone_body": block_bone_body,
-    "block_bone_cap": block_bone_cap,
+    "block_stone_body": lambda: kit_body("stone"),
+    "block_stone_gate": lambda: kit_body("stone", True),
+    "block_stone_cap_keep": lambda: kit_cap("stone", "keep"),
+    "block_stone_cap_wall": lambda: kit_cap("stone", "wall"),
+    "block_stone_cap_corner": lambda: kit_cap("stone", "corner"),
+    "block_wood_body": lambda: kit_body("wood"),
+    "block_wood_gate": lambda: kit_body("wood", True),
+    "block_wood_cap_keep": lambda: kit_cap("wood", "keep"),
+    "block_wood_cap_wall": lambda: kit_cap("wood", "wall"),
+    "block_wood_cap_corner": lambda: kit_cap("wood", "corner"),
+    "block_bone_body": lambda: kit_body("bone"),
+    "block_bone_gate": lambda: kit_body("bone", True),
+    "block_bone_cap_keep": lambda: kit_cap("bone", "keep"),
+    "block_bone_cap_wall": lambda: kit_cap("bone", "wall"),
+    "block_bone_cap_corner": lambda: kit_cap("bone", "corner"),
+    "turret_base": turret_base,
+    "turret_head": turret_head,
     "castle_frame": castle_frame,
     "bat_player": lambda: bat("player"),
     "bat_rival": lambda: bat("rival"),
@@ -1158,7 +1171,6 @@ ASSETS = {
     "rock_scatter": rock_scatter,
     "termite": termite,
     "termite_clump": termite_clump,
-    "torch": torch,
     "tree_pine_a": lambda: tree_pine(True),
     "tree_pine_b": lambda: tree_pine(False),
     "bush": bush,

@@ -20,6 +20,7 @@ export const CONFIG = {
     wood:  { cost: 1, hp: 40 },
     stone: { cost: 3, hp: 100 },
     bone:  { cost: 3, hp: 70, healPerSec: 2 },
+    turret: { cost: 4, hp: 55 },   // HP per level; a turret always fills its square (counts as 2 levels)
   },
   archChance: 0.35,        // ground-level stone blocks that get the torch-lit doorway look
 
@@ -48,11 +49,13 @@ export const CONFIG = {
     slowRadius: 1.6,       // starts braking this far from the touch point
   },
 
+  // Ghost turret: a block you buy. It zaps the enemy bat when it comes close (guard),
+  // otherwise it lobs ghost shells at the rival block you picked.
   ghost: {
     range: 7.2, cooldownMin: 2.0, cooldownMax: 2.6,
     orbSpeed: 5.2, orbSteer: 1.6, orbLife: 2.6, hitRadius: 0.6,
     stun: 1.2, mothPenalty: 1,
-    youCell: [0, 2], rivalCell: [5, 0],
+    shellEvery: 3.2, shellDamage: 16, shellSpeed: 9, maxTurrets: 2, turnSpeed: 4,
   },
 
   ai: {
@@ -61,10 +64,12 @@ export const CONFIG = {
     buildAt: 4, buildAlwaysAt: 7,
     raidAt: 2, raidLead: 0.08,
     termiteChance: 0.4,
+    turretChance: 0.45,
     dropRadius: 0.35, dropMaxSpeed: 1.6,
   },
 };
 export const COST = {
   wood: CONFIG.blocks.wood.cost, stone: CONFIG.blocks.stone.cost, bone: CONFIG.blocks.bone.cost,
+  turret: CONFIG.blocks.turret.cost,
   rock: CONFIG.attacks.rock.cost, termites: CONFIG.attacks.termites.cost,
 };

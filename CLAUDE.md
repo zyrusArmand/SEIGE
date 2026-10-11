@@ -28,7 +28,7 @@ Zyrus is the designer. He **barely codes**. So:
 1. **Core loop first.** Fly, eat moths, build, load attack, drop, return. It must be fun with
    placeholder art before any polish, meta-systems, or extra content.
 2. **Locked content for v1:** 3 blocks (wood, stone, bone), 2 attacks (rock, termites),
-   1 defense (ghost turret), 1 map, 1 AI rival. Anything else goes in `docs/LATER.md`, not the code.
+   1 turret block (ghost cannon you buy and aim; added Oct 11 by Zyrus), 1 map, 1 AI rival. Anything else goes in `docs/LATER.md`, not the code.
 3. **Do not build** multiplayer, shops, unlocks, skins, upgrades, daily rewards, story, or
    analytics dashboards unless Zyrus explicitly asks AND the core loop is already validated.
    Zyrus asked to be reminded of this rule when he drifts. Remind him kindly but directly.
@@ -93,7 +93,7 @@ and ~150k triangles. Wall bricks only bevel their visible face and drop the hidd
 | Up axis | Y-up in Three.js (exporter converts from Blender Z-up) |
 | Front | Models face **+Z** in Three.js |
 | Block origin | bottom-center |
-| Stacking | A block of level N = N copies of `block_<type>_body` at y = floor + i*0.8, then `block_<type>_cap` at y = floor + N*0.8 |
+| Stacking | A block of level N = N copies of `block_<type>_body` (or `_gate` on the ground level of the two front-middle squares) at y = floor + i*0.8, then `block_<type>_cap_<keep|wall|corner>` at y = floor + N*0.8, picked by position; wall caps face out |
 | Castle floor | top of floor is y = 0.24 above `castle_frame` origin; empty `GridOrigin` marks it |
 | Grid cells | cell (col c, row r) center = (-3.75 + 1.5c, 0.24, rowZ0 + 1.5r) relative to castle center |
 | Torches | empties named `TorchSocket_*` mark flames: add an additive glow sprite + flicker there |
@@ -101,8 +101,7 @@ and ~150k triangles. Wall bricks only bevel their visible face and drop the hidd
 | Animations | `bat_player`, `bat_rival` are skinned meshes on a 25-bone rig (shoulder/elbow/wrist/thumb/4 fingers per wing, head, ears, legs). No baked clip: `src/render/batRig.js` animates the bones in code (fold-on-upstroke wing beat, banking, ear flop, legs, stun flail). `moth` has a looping wing-flap |
 | Damage look | multiply each block's material color toward dark as HP drops (clone materials per block) |
 
-Use `block_stone_body_arch` (doorway + torches) for some ground-level stone blocks at random so castles
-look like the concept art.
+Turrets: `turret_base` (one level) + `turret_head` (rotating cannon; empties `GhostSeat`, `Muzzle`) with the ghost seated in it.
 
 ## Performance budget (judges play on phones)
 
