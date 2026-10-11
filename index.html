@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a1424">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Bat Siege</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Fredoka:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<canvas id="game" aria-label="Bat Siege battlefield"></canvas>
+<div id="fx"></div>
+
+<div class="hud-top" id="hudTop">
+  <div class="side">
+    <div class="lbl you">Your Castle</div>
+    <div class="bar you"><i id="youBar"></i><b id="youGhost"></b></div>
+    <div class="pct" id="youPct">22% built</div>
+  </div>
+  <div class="mid">
+    <div class="moths" id="mothBox" aria-label="Moths collected">
+      <svg viewBox="0 0 30 24" aria-hidden="true"><path d="M15 6c-1 0-1.6 1-1.6 2.4V18c0 1.4.7 2.2 1.6 2.2s1.6-.8 1.6-2.2V8.4C16.6 7 16 6 15 6z" fill="#5a2a10"/><path d="M13.6 10C9 3 2 2 1.5 6c-.4 3.5 3 6 7 6.6-3.4 1.2-5.5 4-4.3 6.3 1.4 2.6 6.6 0 9.4-5.4z" fill="#ffb347"/><path d="M16.4 10C21 3 28 2 28.5 6c.4 3.5-3 6-7 6.6 3.4 1.2 5.5 4 4.3 6.3-1.4 2.6-6.6 0-9.4-5.4z" fill="#ffb347"/><circle cx="7" cy="7.5" r="1.6" fill="#a8521c"/><circle cx="23" cy="7.5" r="1.6" fill="#a8521c"/></svg>
+      <span>x <span id="mothCount">0</span></span>
+    </div>
+    <div class="timer" id="timer">3:00</div>
+  </div>
+  <div class="side right">
+    <div class="lbl rival">Rival Bat</div>
+    <div class="bar rival"><i id="rivalBar"></i></div>
+    <div class="pct" id="rivalPct">22% built</div>
+  </div>
+</div>
+
+<button class="icon-btn" id="muteBtn" aria-label="Mute sound" aria-pressed="false">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" fill="currentColor"/><path id="waves" d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/><path id="cross" d="M16 9l6 6M22 9l-6 6" opacity="0"/></svg>
+</button>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="banner" id="banner"></div>
+<div class="vignette" id="vignette"></div>
+
+<div class="hud-bottom" id="hudBottom">
+  <button class="drop" id="dropBtn" hidden>Drop!</button>
+  <div class="status away" id="status">Fly home to build</div>
+  <div class="tray" role="toolbar" aria-label="Build and attack">
+    <button class="tool" data-tool="wood" aria-pressed="false" aria-label="Wood block, costs 1 moth">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4l15 8v16l-15 8-15-8V12z" fill="#c8641c"/><path d="M20 4l15 8-15 8-15-8z" fill="#f08a34"/><path d="M20 20v16l15-8V12z" fill="#a24e14"/><path d="M8 15l12 6M8 21l12 6M8 27l12 6M32 15l-12 6M32 21l-12 6" stroke="#7a3a0c" stroke-width="1.2"/></svg>
+      <span class="cost">1</span><span class="key">1</span>
+    </button>
+    <button class="tool" data-tool="stone" aria-pressed="false" aria-label="Stone block, costs 3 moths">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4l15 8v16l-15 8-15-8V12z" fill="#8c93a0"/><path d="M20 4l15 8-15 8-15-8z" fill="#c4cad4"/><path d="M20 20v16l15-8V12z" fill="#6b717d"/><path d="M5 20l15 8 15-8M12.5 16v8M27.5 24v8" stroke="#4b505a" stroke-width="1.2" fill="none"/></svg>
+      <span class="cost">3</span><span class="key">2</span>
+    </button>
+    <button class="tool" data-tool="bone" aria-pressed="false" aria-label="Bone block heals neighbors, costs 3 moths">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><g transform="rotate(-35 20 20)"><rect x="9" y="17" width="22" height="6" rx="3" fill="#f2ead6"/><circle cx="9" cy="16" r="4.2" fill="#f2ead6"/><circle cx="9" cy="24" r="4.2" fill="#f2ead6"/><circle cx="31" cy="16" r="4.2" fill="#f2ead6"/><circle cx="31" cy="24" r="4.2" fill="#f2ead6"/><rect x="11" y="21" width="18" height="2" fill="#d8ccad"/></g></svg>
+      <span class="cost">3</span><span class="key">3</span>
+    </button>
+    <button class="tool atk" data-tool="rock" aria-pressed="false" aria-label="Load a rock to drop, costs 2 moths">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M9 25l4-11 10-5 9 5 3 10-6 8H14z" fill="#8a8f98"/><path d="M13 14l10-5 9 5-8 4z" fill="#b7bcc4"/><path d="M24 18l8-4 3 10-6 8z" fill="#6a6f78"/></svg>
+      <span class="cost">2</span><span class="key">4</span>
+    </button>
+    <button class="tool atk" data-tool="termites" aria-pressed="false" aria-label="Load termites that chew for 30 seconds, costs 3 moths">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="27" rx="5" ry="7" fill="#d9452b"/><circle cx="20" cy="17" r="4" fill="#e65a3e"/><circle cx="20" cy="10.5" r="3.4" fill="#b8341d"/><path d="M15 22l-6-3M15 27H8M15 31l-6 4M25 22l6-3M25 27h7M25 31l6 4M18 8l-3-4M22 8l3-4" stroke="#b8341d" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="cost">3</span><span class="key">5</span>
+    </button>
+  </div>
+</div>
+
+<div class="overlay" id="loadScreen">
+  <div class="card">
+    <h1 class="title small">Bat<br><span>Siege</span></h1>
+    <div class="loadbar"><i id="loadFill"></i></div>
+    <p class="fine" id="loadText">Waking the bats…</p>
+  </div>
+</div>
+
+<div class="overlay" id="startScreen" hidden>
+  <div class="card">
+    <h1 class="title">Bat<br><span>Siege</span></h1>
+    <p class="pitch">Build your castle. Raid theirs. Every second you spend away, your walls stop growing.</p>
+    <ul class="steps">
+      <li><b>1</b><span>Tap or drag anywhere to fly. Grab glowing <em>moths</em>, they pay for everything.</span></li>
+      <li><b>2</b><span>Over your castle, pick <em>wood</em>, <em>stone</em>, or <em>bone</em> and tap a square. Same block twice stacks it higher.</span></li>
+      <li><b>3</b><span>Load a <em>rock</em> or <em>termites</em> at home, fly over the rival, and hit Drop. Land dead center for a perfect hit.</span></li>
+    </ul>
+    <button class="btn" id="playBtn">Play</button>
+    <p class="fine">Finish every square two blocks high to win, or lead when the moon sets.<span class="desk"> Keys: WASD to fly, Space to drop, 1–5 for the tray.</span></p>
+  </div>
+</div>
+
+<div class="overlay" id="endScreen" hidden>
+  <div class="card">
+    <p class="result" id="resultTitle">Victory</p>
+    <p class="pitch" id="resultLine">Your castle stands tall.</p>
+    <div class="final">
+      <div><span class="lbl you">You</span><b id="fYou">0%</b></div>
+      <div><span class="lbl rival">Rival</span><b id="fRival">0%</b></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="sMoths">0</b><span>moths eaten</span></div>
+      <div class="stat"><b id="sBroken">0</b><span>blocks smashed</span></div>
+      <div class="stat"><b id="sPerfect">0</b><span>perfect drops</span></div>
+    </div>
+    <button class="btn" id="againBtn">Play again</button>
+  </div>
+</div>
+
+<div id="debug" hidden></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

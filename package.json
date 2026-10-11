@@ -1,0 +1,19 @@
+{
+  "name": "bat-siege",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "assets": "blender -b -P blender/build_assets.py -- --out assets/models --preview",
+    "simulate": "node tools/simulate.mjs 40"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "5.4.11"
+  }
+}
