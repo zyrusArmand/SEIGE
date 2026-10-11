@@ -17,7 +17,11 @@ export async function loadModels(onProgress) {
   const out = {};
   let done = 0;
   await Promise.all(MODEL_NAMES.map(async (name) => {
-    const gltf = await loader.loadAsync(base + name + '.glb');
+    // Hosts that can't serve .glb files can ship the models inside a script as base64 (window.BAT_MODELS).
+    const packed = globalThis.BAT_MODELS && globalThis.BAT_MODELS[name];
+    const gltf = packed
+      ? await loader.parseAsync(Uint8Array.from(atob(packed), (ch) => ch.charCodeAt(0)).buffer, base)
+      : await loader.loadAsync(base + name + '.glb');
     gltf.scene.updateMatrixWorld(true);
     out[name] = gltf.scene;
     onProgress && onProgress(++done / MODEL_NAMES.length);
