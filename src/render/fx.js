@@ -34,7 +34,7 @@ export class GlowBatch {
     this.size = new THREE.InstancedBufferAttribute(new Float32Array(max), 1).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('isize', this.size);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: texture } },
+      uniforms: { map: { value: texture }, linear: { value: 0 } },
       vertexShader: `
         attribute vec3 offset; attribute vec4 icolor; attribute float isize;
         varying vec2 vUv; varying vec3 vColor;
@@ -45,8 +45,12 @@ export class GlowBatch {
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
-        uniform sampler2D map; varying vec2 vUv; varying vec3 vColor;
-        void main(){ gl_FragColor = vec4(vColor * texture2D(map, vUv).a, 1.0); }`,
+        uniform sampler2D map; uniform float linear; varying vec2 vUv; varying vec3 vColor;
+        void main(){
+          vec3 c = vColor * texture2D(map, vUv).a;
+          if (linear > 0.5) c = pow(c, vec3(2.0)) * 2.4;   // composer path works in linear light
+          gl_FragColor = vec4(c, 1.0);
+        }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     this.mesh = new THREE.Mesh(g, mat);
@@ -54,6 +58,7 @@ export class GlowBatch {
     this.mesh.renderOrder = 10;
     scene.add(this.mesh);
   }
+  setLinear(on) { this.mesh.material.uniforms.linear.value = on ? 1 : 0; }
   begin() { this.n = 0; }
   add(x, y, z, size, color, opacity = 1) {
     if (this.n >= this.max || opacity <= 0.003) return;

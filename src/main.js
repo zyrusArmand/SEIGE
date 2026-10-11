@@ -9,6 +9,10 @@ import { Actors } from './render/actors.js';
 import { GlowBatch, Sparkles, Debris, FloatText } from './render/fx.js';
 import { initAudio, sfx, setMuted, isMuted } from './audio.js';
 import { Tutorial } from './ui/tutorial.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 const $ = (id) => document.getElementById(id);
 const MOBILE = matchMedia('(pointer:coarse)').matches;
@@ -33,9 +37,23 @@ let camDist = 30;
 let shakeAmt = 0;
 let finale = null;   // end-of-match camera move + fireworks
 
+// Soft bloom on glowing things: desktop only (phones skip it to keep 60 fps). ?bloom=0 / ?bloom=1 to force.
+const bloomParam = new URLSearchParams(location.search).get('bloom');
+let composer = null, bloomPass = null;
+function setupBloom() {
+  if (bloomParam === '0' || (MOBILE && bloomParam !== '1')) return;
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.82);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+}
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
+  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
   camera.aspect = w / h;
   const th = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
   camDist = Math.max((camera.aspect > 1 ? 11.6 : 12.4) / th, 6.4 / (th * camera.aspect));
@@ -413,7 +431,9 @@ function adaptQuality(dt) {
   if (fps >= 48) return;
   quality.tier--;
   const dpr = Math.min(window.devicePixelRatio || 1, quality.tier === 1 ? 1.25 : 1);
-  renderer.setPixelRatio(dpr); resize();
+  renderer.setPixelRatio(dpr);
+  if (composer) { composer.dispose?.(); composer = null; glow.setLinear(false); }   // drop bloom first
+  resize();
   const sz = quality.tier === 1 ? 1024 : 512;
   const sh = world.moon.shadow;
   if (sh.mapSize.x > sz) { sh.mapSize.set(sz, sz); if (sh.map) { sh.map.dispose(); sh.map = null; } }
@@ -481,7 +501,7 @@ function frame() {
   camera.position.x += sx; camera.position.z += sz;
   camera.lookAt(tgt.x + sx * 0.5, tgt.y, tgt.z + sz * 0.5);
   if (window.__batSiege.camOverride) window.__batSiege.camOverride(camera, game);   // test hook
-  renderer.render(scene, camera);
+  if (composer) composer.render(); else renderer.render(scene, camera);
 
   if (DEBUG) {
     fpsN++; fpsT += dt;
@@ -500,6 +520,7 @@ function frame() {
     actors = new Actors(scene, models);
     glow = new GlowBatch(scene, makeGlowTexture());
     sparkles = new Sparkles(); debris = new Debris(scene); floats = new FloatText($('fx'), camera);
+    setupBloom(); glow.setLinear(!!composer);
     if (DEBUG) ui.debug.hidden = false;
     renderer.compile(scene, camera);
     $('loadScreen').hidden = true; $('startScreen').hidden = false; setHud(false);
